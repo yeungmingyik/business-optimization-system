@@ -104,9 +104,26 @@ test('所有业务页面可导航，中文字体自托管并正确加载', async
   await page.evaluate(() => document.fonts.ready);
   expect(
     await page.locator('body').evaluate((element) => getComputedStyle(element).fontFamily),
-  ).toMatch(/Noto Sans/);
+  ).toMatch(/Yijintool Han Sans SC/);
   expect(fontRequests.length).toBeGreaterThan(0);
   expect(fontRequests.every((url) => new URL(url).hostname === '127.0.0.1')).toBe(true);
+  expect(
+    fontRequests.every((url) => new URL(url).pathname.startsWith('/fonts/source-han-sans/')),
+  ).toBe(true);
+  const fontSession = await page.context().newCDPSession(page);
+  await fontSession.send('DOM.enable');
+  await fontSession.send('CSS.enable');
+  const { root } = await fontSession.send('DOM.getDocument');
+  const { nodeId } = await fontSession.send('DOM.querySelector', {
+    nodeId: root.nodeId,
+    selector: 'h1',
+  });
+  const { fonts } = await fontSession.send('CSS.getPlatformFontsForNode', { nodeId });
+  expect(fonts.length).toBeGreaterThan(0);
+  expect(
+    fonts.every((font) => font.isCustomFont && /Yijintool Han Sans SC/.test(font.familyName)),
+  ).toBe(true);
+  await fontSession.detach();
   expect(errors).toEqual([]);
   await page.screenshot({ path: '.artifacts/tests/dashboard-desktop.png', fullPage: true });
 });

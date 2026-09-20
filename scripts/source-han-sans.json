@@ -1,0 +1,23 @@
+{
+  "family": "Yijintool Han Sans SC",
+  "postscriptFamily": "YijintoolHanSansSC",
+  "upstreamFamily": "Source Han Sans SC",
+  "version": "2.005",
+  "upstreamCommit": "a4f7cf94edfb9d7ffbdfc4841de276358bd7e0f2",
+  "axes": { "wght": [250, 900] },
+  "chunkSize": 256,
+  "commonTextDirectories": ["apps/web/src", "apps/api/src", "packages/database/src"],
+  "buildDependencies": { "fonttools": "4.60.1", "brotli": "1.2.0", "zopfli": "0.4.3" },
+  "font": {
+    "filename": "SourceHanSansSC-VF.ttf",
+    "url": "https://raw.githubusercontent.com/adobe-fonts/source-han-sans/a4f7cf94edfb9d7ffbdfc4841de276358bd7e0f2/Variable/TTF/SourceHanSansSC-VF.ttf",
+    "sha256": "68f866374d8ff04d2103c5b2907f1cab2dbec91ac0fb6ad0b801c6db0c1faa80"
+  },
+  "license": {
+    "filename": "SourceHanSans-LICENSE.txt",
+    "url": "https://raw.githubusercontent.com/adobe-fonts/source-han-sans/a4f7cf94edfb9d7ffbdfc4841de276358bd7e0f2/LICENSE.txt",
+    "sha256": "fcac737e761ec63dbfbdce11030a1780161920d80315edba9c8beff1c2bac5a2",
+    "reservedNames": ["Source"],
+    "subsettingPolicy": "https://openfontlicense.org/webfonts-and-reserved-font-names/"
+  }
+}
