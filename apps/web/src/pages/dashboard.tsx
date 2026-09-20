@@ -220,7 +220,15 @@ export default function Dashboard() {
             />
           ) : (
             <div className="trend-chart">
-              <svg viewBox="0 0 780 210" role="img" aria-label="正常订单已付款金额趋势">
+              <div className="trend-scale">
+                ¥ {money(max === 1 && !values.some(Boolean) ? 0 : max)}
+              </div>
+              <svg
+                viewBox="32 40 716 130"
+                preserveAspectRatio="none"
+                role="img"
+                aria-label="正常订单已付款金额趋势"
+              >
                 <defs>
                   <linearGradient id="trend-fill" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="#c81e2b" stopOpacity="0.14" />
@@ -236,6 +244,7 @@ export default function Dashboard() {
                     y2={y}
                     stroke="#e8edf2"
                     strokeDasharray="3 5"
+                    vectorEffect="non-scaling-stroke"
                   />
                 ))}
                 {values.some((value) => value > 0) && (
@@ -248,19 +257,15 @@ export default function Dashboard() {
                       strokeWidth="2.5"
                       strokeLinecap="round"
                       strokeLinejoin="round"
+                      vectorEffect="non-scaling-stroke"
                     />
                   </>
                 )}
-                <text x="32" y="200">
-                  {startDate.slice(5)}
-                </text>
-                <text x="748" y="200" textAnchor="end">
-                  {endDate.slice(5)}
-                </text>
-                <text x="32" y="22">
-                  ¥ {money(max === 1 && !values.some(Boolean) ? 0 : max)}
-                </text>
               </svg>
+              <div className="trend-dates">
+                <time dateTime={startDate}>{startDate.slice(5)}</time>
+                <time dateTime={endDate}>{endDate.slice(5)}</time>
+              </div>
             </div>
           )}
         </Section>

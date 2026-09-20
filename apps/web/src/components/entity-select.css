@@ -92,7 +92,7 @@
   white-space: nowrap;
 }
 .entity-option small {
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: #64748b;
 }
 .entity-select-pending {
