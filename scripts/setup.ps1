@@ -1,3 +1,4 @@
+& (Join-Path $PSScriptRoot 'install-node.ps1')
 . (Join-Path $PSScriptRoot 'enter-env.ps1')
 
 $projectPackage = Get-Content -LiteralPath (Join-Path $env:BOS_ROOT 'package.json') -Raw | ConvertFrom-Json
