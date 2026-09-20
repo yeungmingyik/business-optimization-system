@@ -1,0 +1,17 @@
+packages:
+  - apps/*
+  - packages/*
+storeDir: '${BOS_ROOT}/.cache/pnpm/store'
+cacheDir: '${BOS_ROOT}/.cache/pnpm/cache'
+engineStrict: true
+saveExact: true
+overrides:
+  path-to-regexp: 8.4.2
+  multer: 2.4.0
+  file-type: 21.3.4
+  exceljs>uuid: 11.1.1
+allowBuilds:
+  '@nestjs/core': false
+  '@tailwindcss/oxide': true
+  argon2: true
+  esbuild: true

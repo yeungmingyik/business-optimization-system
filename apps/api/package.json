@@ -1,0 +1,39 @@
+{
+  "name": "@yijintool/api",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/main.js",
+    "db:migrate": "tsx src/cli.ts migrate",
+    "db:init": "tsx src/cli.ts init",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@nestjs/common": "11.2.5",
+    "@nestjs/core": "11.2.5",
+    "@nestjs/platform-express": "11.2.5",
+    "argon2": "0.44.0",
+    "cookie-parser": "1.4.7",
+    "drizzle-orm": "0.45.2",
+    "pg": "8.16.3",
+    "reflect-metadata": "0.2.2",
+    "rxjs": "7.8.2",
+    "zod": "3.25.76",
+    "exceljs": "4.4.0",
+    "yauzl": "3.4.0",
+    "multer": "2.4.0",
+    "express": "5.2.1"
+  },
+  "devDependencies": {
+    "@types/cookie-parser": "1.4.9",
+    "@types/express": "5.0.3",
+    "@types/node": "24.3.0",
+    "@types/pg": "8.15.5",
+    "@types/yauzl": "2.10.3",
+    "@types/multer": "2.0.0",
+    "tsx": "4.20.5",
+    "typescript": "5.9.2"
+  }
+}

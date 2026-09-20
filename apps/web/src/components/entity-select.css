@@ -1,0 +1,108 @@
+.entity-select-field {
+  display: flex;
+  position: relative;
+  width: 100%;
+}
+.entity-validation {
+  position: absolute;
+  height: 1px;
+  width: 1px;
+  padding: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.entity-select-trigger[aria-invalid='true'] {
+  border-color: #c81e2b;
+}
+.entity-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-right: 30px;
+  text-align: left;
+  width: 100%;
+  cursor: pointer;
+}
+.entity-select-trigger > span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.entity-select-trigger > svg {
+  flex-shrink: 0;
+}
+.entity-placeholder {
+  color: #64748b;
+}
+.entity-clear {
+  position: absolute;
+  right: 24px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  padding: 2px;
+  border: 0;
+  background: white;
+  color: #64748b;
+  cursor: pointer;
+}
+.entity-select-popover {
+  width: max(300px, var(--radix-popover-trigger-width));
+  max-width: min(480px, calc(100vw - 32px));
+  padding: 8px;
+}
+.entity-select-options {
+  max-height: 280px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin-top: 8px;
+}
+.entity-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+.entity-option:hover,
+.entity-option:focus-visible {
+  background: #f1f5f9;
+  outline-offset: -2px;
+}
+.entity-option[aria-selected='true'] {
+  background: #fdf2f3;
+}
+.entity-option > span:last-child {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.entity-option strong {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.entity-option small {
+  font-size: 11px;
+  color: #64748b;
+}
+.entity-select-pending {
+  display: flex;
+  min-height: 90px;
+  align-items: center;
+  justify-content: center;
+  color: #64748b;
+}
+.entity-load-more {
+  width: 100%;
+  margin-top: 4px;
+}

@@ -1,0 +1,10 @@
+.cache/
+.data/
+.tools/
+.artifacts/
+.local/
+node_modules/
+dist/
+pnpm-lock.yaml
+AGENTS.md
+产品梳理.md

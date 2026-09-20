@@ -1,0 +1,32 @@
+{
+  "name": "business-optimization-system",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@12.5.1",
+  "engines": {
+    "node": ">=24.19.0 <25",
+    "pnpm": "12.5.1"
+  },
+  "scripts": {
+    "env:check": "pwsh -NoProfile -File ./scripts/check-env.ps1",
+    "dev": "pwsh -NoProfile -File ./scripts/start.ps1",
+    "build": "pwsh -NoProfile -File ./scripts/pnpm.ps1 -r --if-present build",
+    "typecheck": "pwsh -NoProfile -File ./scripts/pnpm.ps1 -r --if-present typecheck",
+    "test:api": "pwsh -NoProfile -File ./scripts/test-api.ps1",
+    "test:unit": "vitest run tests/domain.test.ts",
+    "test:e2e": "playwright test",
+    "check": "pwsh -NoProfile -File ./scripts/check.ps1",
+    "test:files": "vitest run tests/transfer-files.test.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/node": "24.3.0",
+    "@types/supertest": "6.0.3",
+    "supertest": "7.1.4",
+    "tsx": "4.20.5",
+    "typescript": "5.9.2",
+    "vitest": "5.0.1",
+    "prettier": "3.8.3",
+    "@axe-core/playwright": "4.13.0"
+  }
+}

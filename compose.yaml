@@ -1,0 +1,40 @@
+name: yijintool
+services:
+  postgres:
+    image: postgres:18-alpine@sha256:6c538e7206ea40ff740ef27883529390a690b6ead6ba96b44c67a9f7c638e8fd
+    environment:
+      POSTGRES_DB: business_dev
+      POSTGRES_USER: business_dev
+      POSTGRES_PASSWORD: ${BOS_DB_PASSWORD:?BOS_DB_PASSWORD_REQUIRED}
+      TZ: Asia/Shanghai
+    ports:
+      - '127.0.0.1:54321:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U business_dev -d business_dev']
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    stop_grace_period: 30s
+  postgres-test:
+    image: postgres:18-alpine@sha256:6c538e7206ea40ff740ef27883529390a690b6ead6ba96b44c67a9f7c638e8fd
+    profiles: ['test']
+    environment:
+      POSTGRES_DB: business_test
+      POSTGRES_USER: business_test
+      POSTGRES_PASSWORD: ${BOS_TEST_DB_PASSWORD:?BOS_TEST_DB_PASSWORD_REQUIRED}
+      TZ: Asia/Shanghai
+    ports:
+      - '127.0.0.1:54322:5432'
+    volumes:
+      - postgres-test-data:/var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U business_test -d business_test']
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    stop_grace_period: 30s
+volumes:
+  postgres-data:
+  postgres-test-data:
