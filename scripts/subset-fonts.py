@@ -1,171 +1,51 @@
-from concurrent.futures import ProcessPoolExecutor
 from hashlib import sha256
-from importlib.metadata import version
-from io import BytesIO
 from pathlib import Path
-from urllib.request import Request, urlopen
 import json
-import os
-import time
-
 from fontTools import subset
 from fontTools.ttLib import TTFont
 
+root = Path(__file__).resolve().parents[1]
+source = root / 'apps/web/src'
+font_source = root / 'apps/web/node_modules/@fontsource-variable/noto-sans-sc/files'
+destination = root / 'apps/web/public/fonts/ui'
+destination.mkdir(parents=True, exist_ok=True)
+codepoints = {ord(character) for character in '年月日星期一二三四五六七八九十〇'}
+for path in source.rglob('*'):
+    if path.suffix in ('.ts', '.tsx'):
+        codepoints.update(ord(character) for character in path.read_text(encoding='utf-8') if 0x2000 <= ord(character) <= 0xFFFF)
 
-ROOT = Path(__file__).resolve().parents[1]
-MANIFEST_PATH = ROOT / 'scripts/source-han-sans.json'
-MANIFEST = json.loads(MANIFEST_PATH.read_text(encoding='utf-8'))
-CACHE = ROOT / '.cache/font-sources'
-DESTINATION = ROOT / 'apps/web/public/fonts/source-han-sans'
-REPORT_DIRECTORY = ROOT / '.artifacts/source-han-fonts'
-
-
-def verified_download(entry):
-    path = CACHE / entry['filename']
-    if not path.exists() or sha256(path.read_bytes()).hexdigest() != entry['sha256']:
-        request = Request(entry['url'], headers={'User-Agent': 'Yijintool-Font-Builder'})
-        with urlopen(request, timeout=120) as response:
-            content = response.read()
-        if sha256(content).hexdigest() != entry['sha256']:
-            raise ValueError(f"FONT_CHECKSUM_MISMATCH: {entry['filename']}")
-        path.write_bytes(content)
-    return path
-
-
-def unicode_ranges(codepoints):
-    ranges = []
-    values = sorted(codepoints)
-    first = previous = values[0]
-    for value in values[1:]:
-        if value == previous + 1:
-            previous = value
-            continue
-        ranges.append(f'U+{first:X}' if first == previous else f'U+{first:X}-{previous:X}')
-        first = previous = value
-    ranges.append(f'U+{first:X}' if first == previous else f'U+{first:X}-{previous:X}')
-    return ','.join(ranges)
-
-
-def rename_font(font):
-    family = MANIFEST['family']
-    postscript = MANIFEST['postscriptFamily']
-    instance_names = {item.postscriptNameID for item in font['fvar'].instances}
-    for record in font['name'].names:
-        value = record.toUnicode()
-        if record.nameID in (1, 4, 16):
-            value = family
-        elif record.nameID == 3:
-            value = f"{MANIFEST['version']};YIJIN;{postscript}"
-        elif record.nameID in instance_names or record.nameID == 6:
-            value = value.replace('SourceHanSansSCVF', postscript)
-        else:
-            continue
-        record.string = value.encode(record.getEncoding())
-
-
-def generate_subset(task):
-    label, codepoints, font_path = task
-    font = TTFont(font_path, recalcTimestamp=False)
-    variation_sequences = {(selector, codepoint) for table in font['cmap'].tables if table.format == 14
-                           for selector, values in table.uvsDict.items()
-                           for codepoint, _ in values if codepoint in codepoints}
-    variation_selectors = {selector for table in font['cmap'].tables if table.format == 14
-                           for selector, values in table.uvsDict.items()
-                           if any(codepoint in codepoints for codepoint, _ in values)}
-    rename_font(font)
+declarations = []
+manifest = []
+for path in sorted(font_source.glob('noto-sans-sc-*-wght-normal.woff2')):
+    font = TTFont(path, recalcTimestamp=False)
+    covered = codepoints.intersection(font.getBestCmap())
+    if not covered:
+        font.close()
+        continue
     options = subset.Options()
     options.flavor = 'woff2'
     options.recalc_timestamp = False
-    options.name_IDs = ['*']
-    options.name_languages = ['*']
-    options.name_legacy = True
-    options.layout_features = ['*']
-    options.notdef_glyph = True
-    options.notdef_outline = True
     processor = subset.Subsetter(options=options)
-    processor.populate(unicodes=set(codepoints) | variation_selectors)
+    processor.populate(unicodes=covered)
     processor.subset(font)
-    output = BytesIO()
-    font.flavor = 'woff2'
-    font.save(output)
+    intermediate = destination / 'subset.woff2'
+    font.save(intermediate)
     font.close()
-    content = output.getvalue()
-    digest = sha256(content).hexdigest()
-    filename = f'han-sans-sc-{label}-{digest[:12]}.woff2'
-    (DESTINATION / filename).write_bytes(content)
-    verified = TTFont(BytesIO(content))
-    coverage = set(verified.getBestCmap())
-    if coverage != set(codepoints):
-        raise ValueError(f'FONT_COVERAGE_MISMATCH: {filename}')
-    axes = {axis.axisTag: [axis.minValue, axis.maxValue] for axis in verified['fvar'].axes}
-    if axes != MANIFEST['axes']:
-        raise ValueError(f'FONT_AXIS_MISMATCH: {filename}')
-    verified_sequences = {(selector, codepoint) for table in verified['cmap'].tables if table.format == 14
-                          for selector, values in table.uvsDict.items() for codepoint, _ in values}
-    if verified_sequences != variation_sequences:
-        raise ValueError(f'FONT_VARIATION_SEQUENCE_MISMATCH: {filename}')
-    verified.close()
-    return {'label': label, 'file': filename, 'bytes': len(content), 'sha256': digest,
-            'codepoints': len(codepoints), 'variationSequences': len(variation_sequences),
-            'unicodeRange': unicode_ranges(codepoints)}
+    content = intermediate.read_bytes()
+    digest = sha256(content).hexdigest()[:12]
+    filename = f'noto-sans-sc-ui-{path.stem.removeprefix("noto-sans-sc-").removesuffix("-wght-normal")}-{digest}.woff2'
+    target = destination / filename
+    intermediate.replace(target)
+    unicode_range = ','.join(f'U+{codepoint:X}' for codepoint in sorted(covered))
+    declarations.append(f'@font-face {{ font-family: "Noto Sans SC UI"; font-style: normal; font-weight: 100 900; font-display: swap; src: url("/fonts/ui/{filename}") format("woff2-variations"); unicode-range: {unicode_range}; }}')
+    manifest.append({'file': filename, 'bytes': len(content), 'glyphs': len(covered)})
 
+current_files = {item['file'] for item in manifest}
+for path in destination.glob('noto-sans-sc-ui-*.woff2'):
+    if path.name not in current_files:
+        path.unlink()
 
-def main():
-    started = time.monotonic()
-    if ROOT.drive.upper() != 'D:':
-        raise ValueError('D_DRIVE_REQUIRED')
-    for path in (CACHE, DESTINATION, REPORT_DIRECTORY, ROOT / 'apps/web/src', ROOT / 'apps/web/public/licenses'):
-        resolved = path.resolve()
-        if resolved.drive.upper() != 'D:' or not resolved.is_relative_to(ROOT):
-            raise ValueError(f'FONT_PATH_OUTSIDE_WORKSPACE: {path}')
-    for name, expected in MANIFEST['buildDependencies'].items():
-        if version(name) != expected:
-            raise ValueError(f'FONT_BUILD_DEPENDENCY_MISMATCH: {name}')
-    for directory in (CACHE, DESTINATION, REPORT_DIRECTORY):
-        directory.mkdir(parents=True, exist_ok=True)
-    font_path = verified_download(MANIFEST['font'])
-    license_path = verified_download(MANIFEST['license'])
-    original = TTFont(font_path, recalcTimestamp=False)
-    original_coverage = set(original.getBestCmap())
-    original.close()
-    common = set(range(0x20, 0x100)) | set(range(0x2000, 0x2070)) | set(range(0x3000, 0x3040)) | set(range(0xFF00, 0xFFF0))
-    common.update(ord(character) for character in '年月日星期一二三四五六七八九十〇')
-    source_files = []
-    for folder in MANIFEST['commonTextDirectories']:
-        for path in sorted((ROOT / folder).rglob('*')):
-            if path.suffix not in ('.ts', '.tsx', '.sql'):
-                continue
-            source_files.append(path.relative_to(ROOT).as_posix())
-            common.update(ord(character) for character in path.read_text(encoding='utf-8') if ord(character) >= 0x2000)
-    common &= original_coverage
-    remaining = sorted(original_coverage - common)
-    chunk_size = MANIFEST['chunkSize']
-    tasks = [('common', sorted(common), str(font_path))]
-    tasks.extend((f'{offset // chunk_size:03d}', remaining[offset:offset + chunk_size], str(font_path))
-                 for offset in range(0, len(remaining), chunk_size))
-    print(json.dumps({'event': 'start', 'codepoints': len(original_coverage), 'commonCodepoints': len(common), 'subsets': len(tasks)}), flush=True)
-    files = []
-    with ProcessPoolExecutor(max_workers=min(4, os.cpu_count() or 1)) as executor:
-        for result in executor.map(generate_subset, tasks):
-            files.append(result)
-            print(json.dumps({'event': 'subset', 'file': result['file'], 'bytes': result['bytes'], 'completed': len(files), 'total': len(tasks)}), flush=True)
-    expected_files = {item['file'] for item in files}
-    for path in DESTINATION.glob('han-sans-sc-*.woff2'):
-        if path.name not in expected_files:
-            path.unlink()
-    declarations = []
-    for item in files:
-        declarations.append(f'@font-face {{ font-family: "{MANIFEST["family"]}"; font-style: normal; font-weight: 250 900; font-display: swap; src: url("/fonts/source-han-sans/{item["file"]}") format("woff2"); unicode-range: {item["unicodeRange"]}; }}')
-    (ROOT / 'apps/web/src/fonts-ui.css').write_text('\n'.join(declarations) + '\n', encoding='utf-8')
-    (ROOT / 'apps/web/public/licenses/Source-Han-Sans-OFL.txt').write_bytes(license_path.read_bytes())
-    report = {'family': MANIFEST['family'], 'source': MANIFEST['font'], 'axes': MANIFEST['axes'],
-              'codepoints': len(original_coverage), 'commonCodepoints': len(common),
-              'variationSequences': sum(item['variationSequences'] for item in files),
-              'totalBytes': sum(item['bytes'] for item in files), 'files': files,
-              'commonTextFiles': source_files, 'durationSeconds': round(time.monotonic() - started, 2)}
-    (REPORT_DIRECTORY / 'generation.json').write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
-    print(json.dumps({'event': 'complete', 'files': len(files), 'codepoints': len(original_coverage), 'bytes': report['totalBytes'], 'durationSeconds': report['durationSeconds']}), flush=True)
-
-
-if __name__ == '__main__':
-    main()
+(source / 'fonts-ui.css').write_text('\n'.join(declarations) + '\n', encoding='utf-8')
+report = {'fonttools': '4.60.1', 'requestedGlyphs': len(codepoints), 'totalBytes': sum(item['bytes'] for item in manifest), 'files': manifest}
+(root / '.artifacts' / 'font-subsets.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
+print(json.dumps({'files': len(manifest), 'glyphs': len(codepoints), 'bytes': report['totalBytes']}))

@@ -1,7 +1,7 @@
 @import 'tailwindcss';
 
 :root {
-  font-family: 'Yijintool Han Sans SC', sans-serif;
+  font-family: 'Noto Sans Variable', 'Noto Sans SC UI', 'Noto Sans SC Variable', sans-serif;
   color: #17212f;
   background: #f8fafc;
   font-synthesis: none;

@@ -28,6 +28,8 @@ import {
   X,
 } from 'lucide-react';
 import * as Dropdown from '@radix-ui/react-dropdown-menu';
+import '@fontsource-variable/noto-sans';
+import '@fontsource-variable/noto-sans-sc';
 import './fonts-ui.css';
 import './styles.css';
 import { queryClient } from './lib/api';
