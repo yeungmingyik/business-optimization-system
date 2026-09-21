@@ -79,7 +79,7 @@ test('客户、跟进、订单和付款形成完整操作链', async ({ page }) 
   expect(customer.lastDealAt).toBeTruthy();
 });
 
-test('所有业务页面可导航，中文字体自托管并正确加载', async ({ page }) => {
+test('所有业务页面可导航并使用本机字体', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   const fontRequests: string[] = [];
@@ -87,6 +87,9 @@ test('所有业务页面可导航，中文字体自托管并正确加载', async
     if (request.resourceType() === 'font') fontRequests.push(request.url());
   });
   await login(page);
+  const session = await page.context().newCDPSession(page);
+  await session.send('DOM.enable');
+  await session.send('CSS.enable');
   for (const name of [
     '客户管理',
     '订单管理',
@@ -95,18 +98,28 @@ test('所有业务页面可导航，中文字体自托管并正确加载', async
     '导入记录',
     '账号管理',
     '操作记录',
+    '工作台',
   ]) {
     await page.getByRole('link', { name, exact: true }).click();
     await expect(page.getByRole('heading', { name, exact: true }).first()).toBeVisible();
     await expect(page.locator('[role="alert"]')).toHaveCount(0);
+    await page.evaluate(() => document.fonts.ready);
+    const { root } = await session.send('DOM.getDocument');
+    const { nodeId } = await session.send('DOM.querySelector', {
+      nodeId: root.nodeId,
+      selector: 'h1',
+    });
+    const { fonts } = await session.send('CSS.getPlatformFontsForNode', { nodeId });
+    expect(
+      fonts.some((font) => font.glyphCount > 0),
+      name,
+    ).toBe(true);
+    expect(
+      fonts.every((font) => !font.isCustomFont),
+      name,
+    ).toBe(true);
   }
-  await page.getByRole('link', { name: '工作台', exact: true }).click();
-  await page.evaluate(() => document.fonts.ready);
-  expect(
-    await page.locator('body').evaluate((element) => getComputedStyle(element).fontFamily),
-  ).toMatch(/Noto Sans/);
-  expect(fontRequests.length).toBeGreaterThan(0);
-  expect(fontRequests.every((url) => new URL(url).hostname === '127.0.0.1')).toBe(true);
+  expect(fontRequests).toEqual([]);
   expect(errors).toEqual([]);
   await page.screenshot({ path: '.artifacts/tests/dashboard-desktop.png', fullPage: true });
 });
