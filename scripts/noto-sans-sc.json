@@ -1,0 +1,21 @@
+{
+  "family": "Noto Sans SC",
+  "version": "2.004",
+  "upstreamCommit": "f8d157532fbfaeda587e826d4cd5b21a49186f7c",
+  "axes": { "wght": [100, 900] },
+  "chunkSize": 256,
+  "cssMinimumCodepoint": 8192,
+  "commonTextDirectories": ["apps/web/src", "apps/api/src", "packages/database/src"],
+  "buildDependencies": { "fonttools": "4.60.1", "brotli": "1.2.0", "zopfli": "0.4.3" },
+  "font": {
+    "filename": "NotoSansSC-VF.ttf",
+    "url": "https://raw.githubusercontent.com/notofonts/noto-cjk/f8d157532fbfaeda587e826d4cd5b21a49186f7c/Sans/Variable/TTF/Subset/NotoSansSC-VF.ttf",
+    "sha256": "d68bafcb48a2707749396aa12bbbd833cb70401f3a9a689fd2902c7e0d295964"
+  },
+  "license": {
+    "filename": "NotoSansSC-LICENSE.txt",
+    "url": "https://raw.githubusercontent.com/notofonts/noto-cjk/f8d157532fbfaeda587e826d4cd5b21a49186f7c/Sans/LICENSE",
+    "sha256": "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2",
+    "reservedNames": ["Source"]
+  }
+}

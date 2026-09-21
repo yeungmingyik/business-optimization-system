@@ -86,13 +86,13 @@
   min-width: 0;
 }
 .entity-option strong {
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .entity-option small {
-  font-size: var(--text-xs);
+  font-size: var(--text-caption);
   color: #64748b;
 }
 .entity-select-pending {

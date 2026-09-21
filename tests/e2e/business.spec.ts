@@ -79,7 +79,7 @@ test('客户、跟进、订单和付款形成完整操作链', async ({ page }) 
   expect(customer.lastDealAt).toBeTruthy();
 });
 
-test('所有业务页面可导航，中文字体自托管并正确加载', async ({ page }) => {
+test('所有业务页面可导航且中文使用自托管字体、英文与数字使用本机字体', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   const fontRequests: string[] = [];
@@ -87,6 +87,9 @@ test('所有业务页面可导航，中文字体自托管并正确加载', async
     if (request.resourceType() === 'font') fontRequests.push(request.url());
   });
   await login(page);
+  const session = await page.context().newCDPSession(page);
+  await session.send('DOM.enable');
+  await session.send('CSS.enable');
   for (const name of [
     '客户管理',
     '订单管理',
@@ -95,18 +98,49 @@ test('所有业务页面可导航，中文字体自托管并正确加载', async
     '导入记录',
     '账号管理',
     '操作记录',
+    '工作台',
   ]) {
     await page.getByRole('link', { name, exact: true }).click();
     await expect(page.getByRole('heading', { name, exact: true }).first()).toBeVisible();
     await expect(page.locator('[role="alert"]')).toHaveCount(0);
+    await page.evaluate(() => document.fonts.ready);
+    const { root } = await session.send('DOM.getDocument');
+    const { nodeId } = await session.send('DOM.querySelector', {
+      nodeId: root.nodeId,
+      selector: 'h1',
+    });
+    const { fonts } = await session.send('CSS.getPlatformFontsForNode', { nodeId });
+    const renderedFonts = fonts.filter((font) => font.glyphCount > 0);
+    expect(renderedFonts.length, name).toBeGreaterThan(0);
+    expect(
+      renderedFonts.every((font) => font.isCustomFont && font.familyName === 'Noto Sans SC'),
+      name,
+    ).toBe(true);
   }
-  await page.getByRole('link', { name: '工作台', exact: true }).click();
+  await page.evaluate(() => {
+    const probe = document.createElement('span');
+    probe.dataset.testid = 'latin-font-probe';
+    probe.textContent = 'YIJINTOOL ABCabc 0123456789';
+    document.body.append(probe);
+  });
   await page.evaluate(() => document.fonts.ready);
-  expect(
-    await page.locator('body').evaluate((element) => getComputedStyle(element).fontFamily),
-  ).toMatch(/Noto Sans/);
+  const { root } = await session.send('DOM.getDocument');
+  const { nodeId } = await session.send('DOM.querySelector', {
+    nodeId: root.nodeId,
+    selector: '[data-testid="latin-font-probe"]',
+  });
+  const { fonts } = await session.send('CSS.getPlatformFontsForNode', { nodeId });
+  const latinFonts = fonts.filter((font) => font.glyphCount > 0);
+  expect(latinFonts.length).toBeGreaterThan(0);
+  expect(latinFonts.every((font) => !font.isCustomFont)).toBe(true);
+  await page.getByTestId('latin-font-probe').evaluate((element) => element.remove());
   expect(fontRequests.length).toBeGreaterThan(0);
-  expect(fontRequests.every((url) => new URL(url).hostname === '127.0.0.1')).toBe(true);
+  const origin = new URL(page.url()).origin;
+  for (const request of fontRequests) {
+    const url = new URL(request);
+    expect(url.origin).toBe(origin);
+    expect(url.pathname).toMatch(/^\/fonts\/noto-sans-sc\/[^/]+\.woff2$/);
+  }
   expect(errors).toEqual([]);
   await page.screenshot({ path: '.artifacts/tests/dashboard-desktop.png', fullPage: true });
 });
