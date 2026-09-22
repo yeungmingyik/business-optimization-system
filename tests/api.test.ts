@@ -241,6 +241,7 @@ describe('权限与业务闭环', () => {
         await operator.request('POST', `/orders/${order.id}/payment`, {
           version,
           paidAt,
+          receivingAccount: '工商银行 622200001234',
           paymentNote: '',
           totalInclTax: '0.01',
         })
@@ -250,6 +251,7 @@ describe('权限与业务闭环', () => {
       await operator.request('POST', `/orders/${order.id}/payment`, {
         version,
         paidAt,
+        receivingAccount: '工商银行 622200001234',
         paymentNote: '银行转账',
       }),
     );
@@ -258,6 +260,7 @@ describe('权限与业务闭环', () => {
         await operator.request('POST', `/orders/${order.id}/payment`, {
           version,
           paidAt,
+          receivingAccount: '工商银行 622200001234',
           paymentNote: '重复',
         })
       ).status,
@@ -299,6 +302,7 @@ describe('权限与业务闭环', () => {
           version: order.version,
           status: '待付款',
           paidAt: null,
+          receivingAccount: '工商银行 622200001234',
           paymentNote: '',
           reason: '更正',
         })
@@ -329,6 +333,7 @@ describe('权限与业务闭环', () => {
           version: order.version,
           status: '待付款',
           paidAt: null,
+          receivingAccount: '工商银行 622200001234',
           paymentNote: '',
           reason: '',
         })
@@ -340,6 +345,7 @@ describe('权限与业务闭环', () => {
         version: order.version,
         status: '待付款',
         paidAt: null,
+        receivingAccount: '工商银行 622200001234',
         paymentNote: '',
         reason: '登记到错误订单',
       }),
@@ -399,6 +405,7 @@ describe('权限与业务闭环', () => {
         await colleague.request('POST', `/orders/${pending.id}/payment`, {
           version: cancelled.version,
           paidAt: new Date().toISOString(),
+          receivingAccount: '工商银行 622200001234',
           paymentNote: '',
         })
       ).status,
@@ -411,6 +418,7 @@ describe('权限与业务闭环', () => {
       await colleague.request('POST', `/orders/${order.id}/payment`, {
         version: order.version,
         paidAt: new Date().toISOString(),
+        receivingAccount: '工商银行 622200001234',
         paymentNote: '更正后登记',
       }),
     );

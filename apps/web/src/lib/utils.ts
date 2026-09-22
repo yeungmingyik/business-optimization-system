@@ -3,6 +3,29 @@ import { twMerge } from 'tailwind-merge';
 import { useEffect, useState } from 'react';
 import { useBlocker } from '@tanstack/react-router';
 
+const amountFormatter = new Intl.NumberFormat('zh-CN');
+const dateFormatter = new Intl.DateTimeFormat('zh-CN', {
+  timeZone: 'Asia/Shanghai',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+const dateTimeFormatter = new Intl.DateTimeFormat('zh-CN', {
+  timeZone: 'Asia/Shanghai',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+});
+const inputDateFormatter = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Shanghai',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
 export function cn(...values: ClassValue[]) {
   return twMerge(clsx(values));
 }
@@ -10,27 +33,16 @@ export function money(value: string | number | undefined | null) {
   const text = String(value || '0');
   if (!/^\d+(\.\d{0,2})?$/.test(text)) return '0.00';
   const [whole, fractional = ''] = text.split('.');
-  return `${new Intl.NumberFormat('zh-CN').format(BigInt(whole))}.${fractional.padEnd(2, '0')}`;
+  return `${amountFormatter.format(BigInt(whole))}.${fractional.padEnd(2, '0')}`;
 }
 export function date(value?: string | null, time = false) {
   if (!value) return '—';
-  return new Intl.DateTimeFormat('zh-CN', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    ...(time ? { hour: '2-digit', minute: '2-digit', hour12: false } : {}),
-  }).format(new Date(value));
+  return (time ? dateTimeFormatter : dateFormatter).format(new Date(value));
 }
 export function today(offset = 0) {
   const value = new Date();
   value.setDate(value.getDate() + offset);
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(value);
+  return inputDateFormatter.format(value);
 }
 export function localDateTime(value?: string | null) {
   const input = value ? new Date(value) : new Date();

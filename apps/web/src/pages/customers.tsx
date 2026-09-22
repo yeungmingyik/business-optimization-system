@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
+import type { ColumnDef } from '@tanstack/react-table';
 import { ArrowUpDown, Building2, Check, ListFilter, Plus, Settings2, Upload } from 'lucide-react';
-import { api, patch, post, queryClient, queryString } from '../lib/api';
+import { api, ApiError, patch, post, queryClient, queryString } from '../lib/api';
 import { useListState, useMerchants, useOptions, useUsers } from '../lib/hooks';
 import { useSession } from '../lib/session';
+import { useCustomerDraft } from '../lib/customer-draft';
 import { date, iso, localDateTime, today, useDirtyGuard } from '../lib/utils';
 import {
   CHANNELS,
@@ -49,6 +51,7 @@ const blank = {
   bankAccount: '',
   contactName: '',
   contactPhone: '',
+  deliveryAddress: '',
   taobaoId: '',
   wechatId: '',
   wechatName: '',
@@ -63,15 +66,28 @@ const blank = {
   nextFollowupAt: '',
 };
 type CustomerForm = typeof blank;
+type CustomerDrawerState = {
+  id?: string;
+  mode: 'view' | 'edit' | 'new';
+  tab?: string;
+};
+type CustomerActionState = {
+  customer: Customer;
+  type: 'assign' | 'correction';
+};
+const emptyCustomers: Customer[] = [];
 
 export default function Customers() {
   const { user } = useSession();
   const list = useListState({ view: 'all' });
-  const [drawer, setDrawer] = useState<{
-    id?: string;
-    mode: 'view' | 'edit' | 'new';
-    tab?: string;
-  } | null>(() =>
+  const currentList = useRef(list);
+  currentList.current = list;
+  const sortFollowups = useCallback(() => {
+    const current = currentList.current;
+    current.filter('sort', 'nextFollowupAt');
+    current.filter('order', current.filters.order === 'asc' ? 'desc' : 'asc');
+  }, []);
+  const [drawer, setDrawer] = useState<CustomerDrawerState | null>(() =>
     list.filters.customer
       ? { id: list.filters.customer, mode: 'view', tab: list.filters.tab }
       : list.filters.action === 'new'
@@ -99,10 +115,7 @@ export default function Customers() {
     queryFn: ({ signal }) =>
       api<Page<Customer>>(`/customers?${queryString(list.params)}`, { signal }),
   });
-  const [action, setAction] = useState<{
-    customer: Customer;
-    type: 'assign' | 'correction';
-  } | null>(null);
+  const [action, setAction] = useState<CustomerActionState | null>(null);
   const archive = useMutation({
     mutationFn: (customer: Customer) =>
       post(`/customers/${customer.id}/${customer.archivedAt ? 'restore' : 'archive'}`, {
@@ -292,183 +305,16 @@ export default function Customers() {
           </div>
         )}
         <ErrorMessage error={archive.error} />
-        <DataTable
-          data={query.data?.items || []}
+        <CustomerTable
+          data={query.data?.items || emptyCustomers}
           loading={query.isPending}
           error={query.error}
-          onRetry={() => void query.refetch()}
-          columns={[
-            {
-              accessorKey: 'companyName',
-              header: () => <span>所属公司</span>,
-              size: 220,
-              cell: ({ row: { original: item } }) => (
-                <div className="company-cell">
-                  <span className="company-icon">
-                    <Building2 size={16} />
-                  </span>
-                  <div>
-                    <InfoPopover
-                      label={
-                        <span className="cell-strong truncate">
-                          {item.companyName || '个人客户'}
-                        </span>
-                      }
-                    >
-                      <DetailList
-                        values={[
-                          ['企业名称', item.companyName],
-                          ['税号', item.taxId],
-                          ['电话', item.companyPhone],
-                          ['地址', item.companyAddress],
-                          ['开户行', item.bankName],
-                          ['账号', item.bankAccount],
-                        ]}
-                      />
-                    </InfoPopover>
-                    <small>{item.customerNo}</small>
-                  </div>
-                </div>
-              ),
-            },
-            {
-              accessorKey: 'contactName',
-              header: '联系人',
-              size: 150,
-              cell: ({ row: { original: item } }) => (
-                <div>
-                  <InfoPopover label={item.contactName}>
-                    <DetailList
-                      values={[
-                        ['联系电话', item.contactPhone],
-                        ['淘宝号', item.taobaoId],
-                        ['微信号', item.wechatId],
-                        ['微信名称', item.wechatName],
-                        ['抖音号', item.douyinId],
-                      ]}
-                    />
-                  </InfoPopover>
-                  <small className="cell-secondary">{item.contactPhone || '—'}</small>
-                </div>
-              ),
-            },
-            { accessorKey: 'merchantAccountName', header: '所属账号', size: 170 },
-            {
-              id: 'products',
-              header: '意向产品',
-              size: 220,
-              cell: ({ row }) => (
-                <div className="tag-list">
-                  {row.original.products?.slice(0, 2).map((item) => (
-                    <span className="tag" key={item.id}>
-                      {item.name}
-                    </span>
-                  ))}
-                  {(row.original.products?.length || 0) > 2 && (
-                    <InfoPopover label={`+${row.original.products.length - 2}`}>
-                      <div className="tag-list">
-                        {row.original.products.map((item) => (
-                          <span className="tag" key={item.id}>
-                            {item.name}
-                          </span>
-                        ))}
-                      </div>
-                    </InfoPopover>
-                  )}
-                  {!row.original.products?.length && '—'}
-                </div>
-              ),
-            },
-            { accessorKey: 'sourceChannel', header: '来源渠道', size: 115 },
-            {
-              accessorKey: 'status',
-              header: '跟单状态',
-              size: 115,
-              cell: ({ row }) => <Badge>{row.original.status}</Badge>,
-            },
-            ...(user.role === 'BOSS'
-              ? [{ accessorKey: 'ownerName', header: '负责人', size: 100 }]
-              : []),
-            {
-              accessorKey: 'nextFollowupAt',
-              header: () => (
-                <button
-                  className="table-sort"
-                  onClick={() => {
-                    list.filter('sort', 'nextFollowupAt');
-                    list.filter('order', list.filters.order === 'asc' ? 'desc' : 'asc');
-                  }}
-                >
-                  下次跟进
-                  <ArrowUpDown size={12} />
-                </button>
-              ),
-              size: 140,
-              cell: ({ row }) => date(row.original.nextFollowupAt, true),
-            },
-            {
-              id: 'actions',
-              header: '',
-              size: 88,
-              cell: ({ row: { original: item } }) => (
-                <div className="row-actions">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setDrawer({ id: item.id, mode: 'view' })}
-                  >
-                    查看
-                  </Button>
-                  <Menu
-                    items={[
-                      { label: '编辑', onClick: () => setDrawer({ id: item.id, mode: 'edit' }) },
-                      {
-                        label: '记录跟进',
-                        onClick: () => setDrawer({ id: item.id, mode: 'view', tab: 'followups' }),
-                      },
-                      {
-                        label: '创建订单',
-                        disabled: !!item.archivedAt,
-                        onClick: () => {
-                          window.location.href = `/orders/new?customerId=${item.id}`;
-                        },
-                      },
-                      ...(user.role === 'BOSS'
-                        ? [
-                            {
-                              label: '转移负责人',
-                              onClick: () => setAction({ customer: item, type: 'assign' }),
-                            },
-                            {
-                              label: '更正成交记录',
-                              onClick: () => setAction({ customer: item, type: 'correction' }),
-                            },
-                            {
-                              label: item.archivedAt ? '恢复' : '归档',
-                              danger: !item.archivedAt,
-                              onClick: () => {
-                                if (
-                                  confirm(
-                                    `确认${item.archivedAt ? '恢复' : '归档'}“${item.companyName || item.contactName}”？`,
-                                  )
-                                )
-                                  archive.mutate(item);
-                              },
-                            },
-                          ]
-                        : []),
-                    ]}
-                  />
-                </div>
-              ),
-            },
-          ]}
-          emptyAction={
-            <Button size="sm" onClick={() => setDrawer({ mode: 'new' })}>
-              <Plus size={14} />
-              新增客户
-            </Button>
-          }
+          isBoss={user.role === 'BOSS'}
+          onOpen={setDrawer}
+          onAction={setAction}
+          onArchive={archive.mutate}
+          onSortFollowups={sortFollowups}
+          onRetry={query.refetch}
         />
         <Pagination
           total={query.data?.total || 0}
@@ -501,6 +347,200 @@ export default function Customers() {
   );
 }
 
+const CustomerTable = memo(function CustomerTable({
+  data,
+  loading,
+  error,
+  isBoss,
+  onOpen,
+  onAction,
+  onArchive,
+  onSortFollowups,
+  onRetry,
+}: {
+  data: Customer[];
+  loading: boolean;
+  error: unknown;
+  isBoss: boolean;
+  onOpen: (drawer: CustomerDrawerState) => void;
+  onAction: (action: CustomerActionState) => void;
+  onArchive: (customer: Customer) => void;
+  onSortFollowups: () => void;
+  onRetry: () => void;
+}) {
+  const columns = useMemo<ColumnDef<Customer>[]>(
+    () => [
+      {
+        accessorKey: 'companyName',
+        header: () => <span>所属公司</span>,
+        size: 220,
+        cell: ({ row: { original: item } }) => (
+          <div className="company-cell">
+            <span className="company-icon">
+              <Building2 size={16} />
+            </span>
+            <div>
+              <InfoPopover
+                label={
+                  <span className="cell-strong truncate">{item.companyName || '个人客户'}</span>
+                }
+              >
+                <DetailList
+                  values={[
+                    ['企业名称', item.companyName],
+                    ['税号', item.taxId],
+                    ['电话', item.companyPhone],
+                    ['地址', item.companyAddress],
+                    ['开户行', item.bankName],
+                    ['账号', item.bankAccount],
+                  ]}
+                />
+              </InfoPopover>
+              <small>{item.customerNo}</small>
+            </div>
+          </div>
+        ),
+      },
+      {
+        accessorKey: 'contactName',
+        header: '联系人',
+        size: 150,
+        cell: ({ row: { original: item } }) => (
+          <div>
+            <InfoPopover label={item.contactName}>
+              <DetailList
+                values={[
+                  ['联系电话', item.contactPhone],
+                  ['收货地址', item.deliveryAddress],
+                  ['淘宝号', item.taobaoId],
+                  ['微信号', item.wechatId],
+                  ['微信名称', item.wechatName],
+                  ['抖音号', item.douyinId],
+                ]}
+              />
+            </InfoPopover>
+            <small className="cell-secondary">{item.contactPhone || '—'}</small>
+          </div>
+        ),
+      },
+      { accessorKey: 'merchantAccountName', header: '所属账号', size: 170 },
+      {
+        id: 'products',
+        header: '意向产品',
+        size: 220,
+        cell: ({ row }) => (
+          <div className="tag-list">
+            {row.original.products?.slice(0, 2).map((item) => (
+              <span className="tag" key={item.id}>
+                {item.name}
+              </span>
+            ))}
+            {(row.original.products?.length || 0) > 2 && (
+              <InfoPopover label={`+${row.original.products.length - 2}`}>
+                <div className="tag-list">
+                  {row.original.products.map((item) => (
+                    <span className="tag" key={item.id}>
+                      {item.name}
+                    </span>
+                  ))}
+                </div>
+              </InfoPopover>
+            )}
+            {!row.original.products?.length && '—'}
+          </div>
+        ),
+      },
+      { accessorKey: 'sourceChannel', header: '来源渠道', size: 115 },
+      {
+        accessorKey: 'status',
+        header: '跟单状态',
+        size: 115,
+        cell: ({ row }) => <Badge>{row.original.status}</Badge>,
+      },
+      ...(isBoss ? [{ accessorKey: 'ownerName', header: '负责人', size: 100 }] : []),
+      {
+        accessorKey: 'nextFollowupAt',
+        header: () => (
+          <button className="table-sort" onClick={onSortFollowups}>
+            下次跟进
+            <ArrowUpDown size={12} />
+          </button>
+        ),
+        size: 140,
+        cell: ({ row }) => date(row.original.nextFollowupAt, true),
+      },
+      {
+        id: 'actions',
+        header: '',
+        size: 88,
+        cell: ({ row: { original: item } }) => (
+          <div className="row-actions">
+            <Button variant="ghost" size="sm" onClick={() => onOpen({ id: item.id, mode: 'view' })}>
+              查看
+            </Button>
+            <Menu
+              items={[
+                { label: '编辑', onClick: () => onOpen({ id: item.id, mode: 'edit' }) },
+                {
+                  label: '记录跟进',
+                  onClick: () => onOpen({ id: item.id, mode: 'view', tab: 'followups' }),
+                },
+                {
+                  label: '创建订单',
+                  disabled: !!item.archivedAt,
+                  onClick: () => {
+                    window.location.href = `/orders/new?customerId=${item.id}`;
+                  },
+                },
+                ...(isBoss
+                  ? [
+                      {
+                        label: '转移负责人',
+                        onClick: () => onAction({ customer: item, type: 'assign' }),
+                      },
+                      {
+                        label: '更正成交记录',
+                        onClick: () => onAction({ customer: item, type: 'correction' }),
+                      },
+                      {
+                        label: item.archivedAt ? '恢复' : '归档',
+                        danger: !item.archivedAt,
+                        onClick: () => {
+                          if (
+                            confirm(
+                              `确认${item.archivedAt ? '恢复' : '归档'}“${item.companyName || item.contactName}”？`,
+                            )
+                          )
+                            onArchive(item);
+                        },
+                      },
+                    ]
+                  : []),
+              ]}
+            />
+          </div>
+        ),
+      },
+    ],
+    [isBoss, onOpen, onAction, onArchive, onSortFollowups],
+  );
+  return (
+    <DataTable
+      data={data}
+      loading={loading}
+      error={error}
+      onRetry={() => void onRetry()}
+      columns={columns}
+      emptyAction={
+        <Button size="sm" onClick={() => onOpen({ mode: 'new' })}>
+          <Plus size={14} />
+          新增客户
+        </Button>
+      }
+    />
+  );
+});
+
 function CustomerDrawer({
   id,
   mode,
@@ -520,7 +560,9 @@ function CustomerDrawer({
     queryFn: ({ signal }) => api<Customer>(`/customers/${id}`, { signal }),
     enabled: !!id,
   });
-  const [form, setForm] = useState<CustomerForm>({ ...blank });
+  const [editForm, setForm] = useState<CustomerForm>({ ...blank });
+  const draft = useCustomerDraft(blank, mode === 'new');
+  const form = mode === 'new' ? draft.document : editForm;
   const [dirty, setDirty] = useState(false);
   const [tab, setTab] = useState(initialTab || 'info');
   const [orderPage, setOrderPage] = useState(1);
@@ -539,7 +581,7 @@ function CustomerDrawer({
       });
     }
   }, [query.data]);
-  useDirtyGuard(dirty);
+  useDirtyGuard(mode === 'new' ? draft.dirty : dirty);
   const orders = useQuery({
     queryKey: ['customer-orders', id, orderPage, orderPageSize],
     queryFn: ({ signal }) =>
@@ -550,18 +592,28 @@ function CustomerDrawer({
     enabled: !!id && mode === 'view' && tab === 'orders',
   });
   const mutation = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
+      const draftVersion = mode === 'new' ? await draft.prepare() : undefined;
       const data: Record<string, unknown> = Object.fromEntries(
         Object.keys(blank).map((key) => [key, form[key as keyof CustomerForm]]),
       );
       data.lastDealAt = iso(form.lastDealAt);
       data.nextFollowupAt = iso(form.nextFollowupAt);
       if (user.role !== 'BOSS') delete data.ownerId;
-      return id
-        ? patch(`/customers/${id}`, { ...data, version: query.data?.version })
-        : post('/customers', data);
+      try {
+        return id
+          ? await patch(`/customers/${id}`, { ...data, version: query.data?.version })
+          : await post('/customers', { ...data, draftVersion });
+      } catch (error) {
+        if (mode === 'new') {
+          if (error instanceof ApiError && error.status === 409) draft.reject(error);
+          draft.release();
+        }
+        throw error;
+      }
     },
     onSuccess: () => {
+      if (mode === 'new') draft.consume();
       setDirty(false);
       void queryClient.invalidateQueries({ queryKey: ['customers'] });
       void queryClient.invalidateQueries({ queryKey: ['customer', id] });
@@ -569,10 +621,28 @@ function CustomerDrawer({
       onClose();
     },
   });
-  function close() {
+  async function close() {
+    if (mutation.isPending || draft.locked) return;
+    if (mode === 'new') {
+      if (!draft.ready) {
+        onClose();
+        return;
+      }
+      try {
+        await draft.prepare();
+        onClose();
+      } catch {
+        return;
+      }
+      return;
+    }
     if (!dirty || confirm('有未保存的修改，确认关闭？')) onClose();
   }
   function update<K extends keyof CustomerForm>(key: K, value: CustomerForm[K]) {
+    if (mode === 'new') {
+      draft.update(key, value);
+      return;
+    }
     setDirty(true);
     setForm((previous) => ({ ...previous, [key]: value }));
   }
@@ -580,7 +650,12 @@ function CustomerDrawer({
   const item = query.data;
   const textFields = (fields: [keyof CustomerForm, string, boolean?][]) =>
     fields.map(([key, label, required]) => (
-      <Field label={label} required={required} key={key}>
+      <Field
+        label={label}
+        required={required}
+        key={key}
+        className={key === 'deliveryAddress' ? 'span-two' : undefined}
+      >
         <Input
           value={String(form[key] || '')}
           onChange={(event) => update(key, event.target.value as never)}
@@ -605,13 +680,54 @@ function CustomerDrawer({
       footer={
         editable ? (
           <>
-            <span className="save-status">{dirty ? '未保存' : ''}</span>
-            <Button onClick={close}>取消</Button>
+            <span className="save-status" role="status" aria-live="polite">
+              {mode === 'new'
+                ? draft.saving
+                  ? '草稿保存中'
+                  : draft.error
+                    ? draft.ready
+                      ? '草稿保存失败'
+                      : '草稿载入失败'
+                    : draft.dirty
+                      ? '草稿待保存'
+                      : draft.hasSavedDraft
+                        ? '草稿已保存'
+                        : ''
+                : dirty
+                  ? '未保存'
+                  : ''}
+            </span>
+            {mode === 'new' && draft.ready && (
+              <div className="customer-draft-actions">
+                <Button
+                  variant="ghost"
+                  disabled={
+                    draft.locked || mutation.isPending || (!draft.dirty && !draft.hasSavedDraft)
+                  }
+                  onClick={() => {
+                    if (confirm('确认清空当前客户草稿？')) void draft.clear();
+                  }}
+                >
+                  清空草稿
+                </Button>
+                <Button
+                  disabled={draft.locked || mutation.isPending || draft.conflict}
+                  pending={draft.saving}
+                  onClick={() => void draft.flush().catch(() => {})}
+                >
+                  保存草稿
+                </Button>
+              </div>
+            )}
+            <Button disabled={mutation.isPending || draft.locked} onClick={() => void close()}>
+              {mode === 'new' ? '关闭' : '取消'}
+            </Button>
             <Button
               variant="primary"
               type="submit"
               form="customer-form"
               pending={mutation.isPending}
+              disabled={mode === 'new' && (!draft.ready || draft.locked || draft.conflict)}
             >
               保存
             </Button>
@@ -632,8 +748,10 @@ function CustomerDrawer({
         )
       }
     >
-      {id && query.isPending ? (
+      {(id && query.isPending) || (mode === 'new' && draft.loading) ? (
         <Loading />
+      ) : mode === 'new' && !draft.ready ? (
+        <ErrorMessage error={draft.error} retry={() => void draft.load()} />
       ) : query.error ? (
         <ErrorMessage error={query.error} retry={() => void query.refetch()} />
       ) : editable ? (
@@ -641,144 +759,173 @@ function CustomerDrawer({
           id="customer-form"
           onSubmit={(event) => {
             event.preventDefault();
-            mutation.mutate();
+            if (!mutation.isPending && !draft.locked) mutation.mutate();
           }}
         >
-          <ErrorMessage error={mutation.error} />
-          <ConflictActions
-            error={mutation.error}
-            onReload={() => {
-              setDirty(false);
-              mutation.reset();
-              void query.refetch();
-            }}
-            onKeep={() => mutation.reset()}
-          />
-          <div className="form-section">
-            <h3>联系人</h3>
-            <div className="form-grid">
-              {textFields([
-                ['contactName', '姓名 / 称呼', true],
-                ['contactPhone', '联系电话'],
-                ['taobaoId', '淘宝号'],
-                ['wechatId', '微信号'],
-                ['wechatName', '微信名称'],
-                ['douyinId', '抖音号'],
-              ])}
+          <ErrorMessage error={mutation.error || (mode === 'new' ? draft.error : null)} />
+          {mode === 'new' && draft.conflict && (
+            <div className="inline-actions conflict-actions">
+              <Button
+                onClick={() => {
+                  if (confirm('重新载入将放弃当前输入，确认继续？')) {
+                    mutation.reset();
+                    void draft.load();
+                  }
+                }}
+              >
+                重新载入草稿
+              </Button>
+              <Button
+                onClick={() => {
+                  if (confirm('确认用当前输入覆盖已更新的草稿？')) {
+                    mutation.reset();
+                    void draft.saveCurrent();
+                  }
+                }}
+              >
+                保存当前输入
+              </Button>
             </div>
-          </div>
-          <div className="form-section">
-            <h3>所属公司</h3>
-            <div className="form-grid">
-              {textFields([
-                ['companyName', '企业名称'],
-                ['taxId', '税号'],
-                ['companyPhone', '公司电话'],
-                ['companyAddress', '公司地址'],
-                ['bankName', '开户行'],
-                ['bankAccount', '银行账号'],
-              ])}
+          )}
+          {mode !== 'new' && (
+            <ConflictActions
+              error={mutation.error}
+              onReload={() => {
+                setDirty(false);
+                mutation.reset();
+                void query.refetch();
+              }}
+              onKeep={() => mutation.reset()}
+            />
+          )}
+          <fieldset className="customer-form-fields" disabled={mutation.isPending || draft.locked}>
+            <div className="form-section">
+              <h3>联系人</h3>
+              <div className="form-grid">
+                {textFields([
+                  ['contactName', '姓名 / 称呼', true],
+                  ['contactPhone', '联系电话'],
+                  ['deliveryAddress', '收货地址'],
+                  ['taobaoId', '淘宝号'],
+                  ['wechatId', '微信号'],
+                  ['wechatName', '微信名称'],
+                  ['douyinId', '抖音号'],
+                ])}
+              </div>
             </div>
-          </div>
-          <div className="form-section">
-            <h3>业务信息</h3>
-            <div className="form-grid">
-              <Field label="所属账号" required>
-                <Select
-                  required
-                  value={form.merchantAccountId}
-                  onChange={(event) => update('merchantAccountId', event.target.value)}
-                >
-                  <option value="">选择所属账号</option>
-                  {merchants.data?.items
-                    .filter(
-                      (account) =>
-                        account.enabled !== false || account.id === form.merchantAccountId,
-                    )
-                    .map((account) => (
-                      <option key={account.id} value={account.id}>
-                        {account.name}
-                      </option>
-                    ))}
-                </Select>
-              </Field>
-              <Field label="来源渠道" required>
-                <Select
-                  value={form.sourceChannel}
-                  onChange={(event) => update('sourceChannel', event.target.value)}
-                >
-                  {CHANNELS.map((channel) => (
-                    <option key={channel}>{channel}</option>
-                  ))}
-                </Select>
-              </Field>
-              <Field label="跟单状态" required>
-                <Select
-                  value={form.status}
-                  onChange={(event) => update('status', event.target.value as CustomerStatus)}
-                  disabled={item?.status === '已付款'}
-                >
-                  {CUSTOMER_STATUSES.map((status) => (
-                    <option key={status}>{status}</option>
-                  ))}
-                </Select>
-              </Field>
-              {user.role === 'BOSS' && mode === 'new' && (
-                <Field label="负责人" required>
+            <div className="form-section">
+              <h3>所属公司</h3>
+              <div className="form-grid">
+                {textFields([
+                  ['companyName', '企业名称'],
+                  ['taxId', '税号'],
+                  ['companyPhone', '公司电话'],
+                  ['companyAddress', '公司地址'],
+                  ['bankName', '开户行'],
+                  ['bankAccount', '银行账号'],
+                ])}
+              </div>
+            </div>
+            <div className="form-section">
+              <h3>业务信息</h3>
+              <div className="form-grid">
+                <Field label="所属账号" required>
                   <Select
                     required
-                    value={form.ownerId}
-                    onChange={(event) => update('ownerId', event.target.value)}
+                    value={form.merchantAccountId}
+                    onChange={(event) => update('merchantAccountId', event.target.value)}
                   >
-                    <option value="">选择负责人</option>
-                    {users.data?.items
-                      .filter((person) => person.accountStatus === 'ACTIVE')
-                      .map((person) => (
-                        <option key={person.id} value={person.id}>
-                          {person.displayName}
+                    <option value="">选择所属账号</option>
+                    {merchants.data?.items
+                      .filter(
+                        (account) =>
+                          account.enabled !== false || account.id === form.merchantAccountId,
+                      )
+                      .map((account) => (
+                        <option key={account.id} value={account.id}>
+                          {account.name}
                         </option>
                       ))}
                   </Select>
                 </Field>
-              )}
-              <Field label="下次跟进">
-                <Input
-                  type="datetime-local"
-                  value={form.nextFollowupAt}
-                  onChange={(event) => update('nextFollowupAt', event.target.value)}
-                />
-              </Field>
-              {form.status === '已付款' && (
-                <Field label="最近成交时间" required>
+                <Field label="来源渠道" required>
+                  <Select
+                    value={form.sourceChannel}
+                    onChange={(event) => update('sourceChannel', event.target.value)}
+                  >
+                    {CHANNELS.map((channel) => (
+                      <option key={channel}>{channel}</option>
+                    ))}
+                  </Select>
+                </Field>
+                <Field label="跟单状态" required>
+                  <Select
+                    value={form.status}
+                    onChange={(event) => update('status', event.target.value as CustomerStatus)}
+                    disabled={item?.status === '已付款'}
+                  >
+                    {CUSTOMER_STATUSES.map((status) => (
+                      <option key={status}>{status}</option>
+                    ))}
+                  </Select>
+                </Field>
+                {user.role === 'BOSS' && mode === 'new' && (
+                  <Field label="负责人" required>
+                    <Select
+                      required
+                      value={form.ownerId}
+                      onChange={(event) => update('ownerId', event.target.value)}
+                    >
+                      <option value="">选择负责人</option>
+                      {users.data?.items
+                        .filter((person) => person.accountStatus === 'ACTIVE')
+                        .map((person) => (
+                          <option key={person.id} value={person.id}>
+                            {person.displayName}
+                          </option>
+                        ))}
+                    </Select>
+                  </Field>
+                )}
+                <Field label="下次跟进">
                   <Input
                     type="datetime-local"
-                    required
-                    max={localDateTime()}
-                    min={item?.lastDealAt ? localDateTime(item.lastDealAt) : undefined}
-                    value={form.lastDealAt}
-                    onChange={(event) => update('lastDealAt', event.target.value)}
+                    value={form.nextFollowupAt}
+                    onChange={(event) => update('nextFollowupAt', event.target.value)}
                   />
                 </Field>
-              )}
-              <Field label="意向产品" className="span-two">
-                <EntitySelect
-                  resource="products"
-                  label="意向产品"
-                  multiple
-                  value={form.productIds}
-                  onChange={(value) => update('productIds', value)}
-                />
-              </Field>
-              <Field label="客户标签" className="span-two">
-                <MultiSelect
-                  label="客户标签"
-                  options={tags.data?.items || []}
-                  value={form.tagIds}
-                  onChange={(value) => update('tagIds', value)}
-                />
-              </Field>
+                {form.status === '已付款' && (
+                  <Field label="最近成交时间" required>
+                    <Input
+                      type="datetime-local"
+                      required
+                      max={localDateTime()}
+                      min={item?.lastDealAt ? localDateTime(item.lastDealAt) : undefined}
+                      value={form.lastDealAt}
+                      onChange={(event) => update('lastDealAt', event.target.value)}
+                    />
+                  </Field>
+                )}
+                <Field label="意向产品" className="span-two">
+                  <EntitySelect
+                    resource="products"
+                    label="意向产品"
+                    multiple
+                    value={form.productIds}
+                    onChange={(value) => update('productIds', value)}
+                  />
+                </Field>
+                <Field label="客户标签" className="span-two">
+                  <MultiSelect
+                    label="客户标签"
+                    options={tags.data?.items || []}
+                    value={form.tagIds}
+                    onChange={(value) => update('tagIds', value)}
+                  />
+                </Field>
+              </div>
             </div>
-          </div>
+          </fieldset>
         </form>
       ) : (
         item && (
@@ -816,6 +963,7 @@ function CustomerDrawer({
                   values={[
                     ['姓名 / 称呼', item.contactName],
                     ['联系电话', item.contactPhone],
+                    ['收货地址', item.deliveryAddress],
                     ['淘宝号', item.taobaoId],
                     ['微信号', item.wechatId],
                     ['微信名称', item.wechatName],

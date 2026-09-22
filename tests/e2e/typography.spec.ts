@@ -106,8 +106,7 @@ for (const width of [1440, 390]) {
     expect(await fontSize(page.locator('html'))).toBe(enlargedSizes[0]);
     await page.screenshot({ path: `.artifacts/tests/typography-${width}-200.png` });
     expect(await fontSize(page.locator('html'))).toBe(enlargedSizes[0]);
-    page.once('dialog', (confirmation) => confirmation.accept());
-    await dialog.getByRole('button', { name: '取消', exact: true }).click();
+    await dialog.getByRole('button', { name: '关闭', exact: true }).last().click();
     await expect(dialog).not.toBeVisible();
     await expect(addCustomer).toBeFocused();
   });

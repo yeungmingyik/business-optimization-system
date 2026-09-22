@@ -455,9 +455,13 @@ describe('导入与导出', () => {
       freight: '1',
       packaging: '2',
       tax: '3',
+      taxRate: '13',
+      taxFeeMode: '自动计算',
+      totalInclTaxOverride: '32.70',
       productSku: product.sku,
       status: '已付款',
       paidAt: '2026-09-19T04:00:00Z',
+      receivingAccount: '工商银行 622200001234',
       paymentNote: '历史付款',
       externalSource: '导入测试',
       externalOrderNo: `HISTORY-${suffix}`,
@@ -490,6 +494,34 @@ describe('导入与导出', () => {
     expect(orders).toHaveLength(1);
     expect(orders[0].status).toBe('已付款');
     expect(orders[0].totalInclTax).toBe('32.70');
+    expect(orders[0]).toMatchObject({
+      taxRate: '13',
+      taxFeeMode: 'auto',
+      taxFee: '3.47',
+      calculatedTotalInclTax: '33.17',
+      receivingAccount: '工商银行 622200001234',
+    });
+    const exported = await operator.request('POST', '/exports', {
+      kind: 'orders',
+      filters: { customerId: importedCustomer.id },
+    });
+    expect((await poll(operator, `/exports/${exported.body.jobId}`)).rowCount).toBe(2);
+    const downloaded = await raw(operator, 'GET', `/exports/${exported.body.jobId}/download`);
+    expect(downloaded.status).toBe(200);
+    const result = new ExcelJS.Workbook();
+    await result.xlsx.load(await downloaded.arrayBuffer());
+    const sheet = result.getWorksheet('数据');
+    const exportedValues: Record<string, unknown> = {};
+    sheet.getRow(1).eachCell((cell: { value: string }, index: number) => {
+      exportedValues[String(cell.value)] = sheet.getRow(2).getCell(index).value;
+    });
+    expect(exportedValues).toMatchObject({
+      '税率（%）': '13',
+      税费计算方式: '自动计算',
+      调整后含税总计: '32.70',
+      含税总计: '32.70',
+      收款账号: '工商银行 622200001234',
+    });
     expect(orders[0].lines).toHaveLength(2);
     const changed = await operator.request('GET', `/customers/${importedCustomer.id}`);
     expect(new Date(changed.body.lastDealAt).toISOString()).toBe('2026-09-19T04:00:00.000Z');

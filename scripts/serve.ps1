@@ -7,7 +7,7 @@ if ($Test) {
     $env:PGUSER = 'business_test'
     $env:PGPASSWORD = $env:BOS_TEST_DB_PASSWORD
     $env:BOS_API_PORT = '3001'
-    $env:BOS_ALLOWED_ORIGINS = 'http://127.0.0.1:5174,http://localhost:5174,http://127.0.0.1:3001'
+    $env:BOS_ALLOWED_ORIGINS = 'http://127.0.0.1:5174,http://localhost:5174,http://127.0.0.1:5175,http://localhost:5175,http://127.0.0.1:3001'
     $env:BOS_UPLOAD_ROOT = Join-Path $env:BOS_ROOT '.data/test-uploads'
     $env:BOS_API_TARGET = 'http://127.0.0.1:3001'
 }

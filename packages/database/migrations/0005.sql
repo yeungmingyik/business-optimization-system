@@ -1,0 +1,3 @@
+CREATE TABLE waybill_attachments (id uuid PRIMARY KEY, uploader_id uuid NOT NULL REFERENCES users(id), order_id uuid REFERENCES orders(id), storage_key text NOT NULL UNIQUE, original_name text NOT NULL, media_type text NOT NULL CHECK (media_type IN ('image/jpeg','image/png','image/webp')), bytes integer NOT NULL CHECK (bytes > 0 AND bytes <= 10485760), width integer NOT NULL, height integer NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), deleted_at timestamptz);
+CREATE INDEX waybill_attachments_order_idx ON waybill_attachments(order_id) WHERE deleted_at IS NULL;
+CREATE INDEX waybill_attachments_pending_idx ON waybill_attachments(uploader_id,created_at) WHERE order_id IS NULL;

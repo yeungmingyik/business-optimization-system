@@ -1,5 +1,46 @@
 name: yijintool
 services:
+  ocr-models:
+    image: yijintool-ocr:0.2.0-beta.1
+    build:
+      context: ./services/ocr
+    command: ['python', 'models.py']
+    volumes:
+      - ocr-model-data:/models
+    restart: 'no'
+  ocr:
+    image: yijintool-ocr:0.2.0-beta.1
+    build:
+      context: ./services/ocr
+    environment:
+      BOS_OCR_TOKEN: ${BOS_OCR_TOKEN:?BOS_OCR_TOKEN_REQUIRED}
+    depends_on:
+      ocr-models:
+        condition: service_completed_successfully
+    ports:
+      - '127.0.0.1:8000:8000'
+    volumes:
+      - ocr-model-data:/models:ro
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    mem_limit: 3g
+    cpus: 4
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'python',
+          '-c',
+          'import urllib.request; urllib.request.urlopen("http://127.0.0.1:8000/health", timeout=2)',
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 18
+      start_period: 30s
+    stop_grace_period: 30s
   postgres:
     image: postgres:18-alpine@sha256:6c538e7206ea40ff740ef27883529390a690b6ead6ba96b44c67a9f7c638e8fd
     environment:
@@ -36,5 +77,6 @@ services:
       retries: 12
     stop_grace_period: 30s
 volumes:
+  ocr-model-data:
   postgres-data:
   postgres-test-data:

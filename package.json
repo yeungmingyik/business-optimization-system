@@ -1,6 +1,6 @@
 {
   "name": "business-optimization-system",
-  "version": "0.1.0",
+  "version": "0.2.0-beta.1",
   "private": true,
   "packageManager": "pnpm@12.5.1",
   "engines": {
@@ -13,7 +13,8 @@
     "build": "pwsh -NoProfile -File ./scripts/pnpm.ps1 -r --if-present build",
     "typecheck": "pwsh -NoProfile -File ./scripts/pnpm.ps1 -r --if-present typecheck",
     "test:api": "pwsh -NoProfile -File ./scripts/test-api.ps1",
-    "test:unit": "vitest run tests/domain.test.ts",
+    "test:unit": "vitest run tests/domain.test.ts tests/order-amounts.test.ts tests/waybill-recognition.test.ts tests/waybill-text.test.ts tests/waybill-recognition-api.test.ts",
+    "test:ocr": "pwsh -NoProfile -File ./scripts/test-ocr.ps1",
     "test:e2e": "playwright test",
     "check": "pwsh -NoProfile -File ./scripts/check.ps1",
     "test:files": "vitest run tests/transfer-files.test.ts"

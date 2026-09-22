@@ -32,6 +32,7 @@ export const importColumns: Record<TransferKind, Record<string, string>> = {
     companyName: '所属公司',
     contactName: '联系人',
     contactPhone: '联系电话',
+    deliveryAddress: '收货地址',
     companyTaxId: '税号',
     companyPhone: '公司电话',
     companyAddress: '公司地址',
@@ -74,6 +75,9 @@ export const importColumns: Record<TransferKind, Record<string, string>> = {
     freight: '运费',
     packaging: '包装费',
     tax: '税费',
+    taxRate: '税率（%）',
+    taxFeeMode: '税费计算方式',
+    totalInclTaxOverride: '调整后含税总计',
     note: '备注',
     productSku: '产品编号',
     quantity: '数量',
@@ -84,6 +88,7 @@ export const importColumns: Record<TransferKind, Record<string, string>> = {
     status: '订单状态',
     paidAt: '付款时间',
     paymentNote: '付款备注',
+    receivingAccount: '收款账号',
   },
 };
 
@@ -106,6 +111,7 @@ export const spreadsheetEnums: Record<string, string[]> = {
   type: ['正常', '退货', '维修'],
   freightPayment: ['到付', '现付'],
   status: ['待付款', '已付款'],
+  taxFeeMode: ['自动计算', '手动金额'],
 };
 
 export const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';

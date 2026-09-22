@@ -1796,7 +1796,8 @@ select {
   color: #526173;
 }
 .order-lines table {
-  min-width: 660px;
+  min-width: 46.25rem;
+  table-layout: fixed;
 }
 .order-lines td {
   padding: 12px 10px;
@@ -1854,6 +1855,134 @@ select {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+.shipment-attachments {
+  grid-column: 2 / -1;
+  min-width: 0;
+}
+.waybill-attachments {
+  min-width: 0;
+  padding-top: 8px;
+}
+.waybill-heading,
+.waybill-card-actions,
+.waybill-progress {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.waybill-heading {
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.waybill-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+  gap: 10px;
+}
+.waybill-card {
+  min-width: 0;
+  border: 1px solid #d8e0ea;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.waybill-card > a {
+  display: block;
+  background: #f8fafc;
+}
+.waybill-card img {
+  display: block;
+  width: 100%;
+  height: 120px;
+  object-fit: contain;
+}
+.waybill-card-actions {
+  padding: 8px;
+}
+.waybill-name {
+  flex: 1 1 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-caption);
+  color: #526173;
+}
+.waybill-progress {
+  margin-top: 10px;
+  font-size: var(--text-caption);
+}
+.waybill-progress progress {
+  flex: 1;
+  min-width: 60px;
+  max-width: 200px;
+  accent-color: #c81e2b;
+}
+.waybill-recognition {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px;
+  margin-top: 12px;
+  border: 1px solid #d8e0ea;
+  border-radius: 6px;
+  background: #f8fafc;
+}
+.waybill-recognition > .field {
+  grid-column: 1 / -1;
+}
+.waybill-recognition > .button {
+  white-space: normal;
+  height: auto;
+}
+.shipment-cards > div {
+  display: grid;
+  grid-template-columns: 23px minmax(0, 1fr);
+}
+.shipment-cards .waybill-attachments {
+  grid-column: 2;
+}
+.customer-form-fields {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.customer-draft-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.amount-field {
+  min-width: 0;
+}
+.amount-field-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+  min-height: 1.5rem;
+  font-size: var(--text-caption);
+  color: #5c6c7e;
+}
+.amount-field-meta .button {
+  min-height: 1.5rem;
+  height: auto;
+  padding: 2px 5px;
+}
+.editable-total .input {
+  font-size: var(--text-section);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  color: #bc2432;
+}
+.payment-record > div,
+.paid-summary {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .shipment-form {
   display: grid;
@@ -2761,6 +2890,12 @@ progress::-webkit-progress-value {
     align-items: center;
     justify-content: space-between;
   }
+  .order-summary .amount-breakdown > .editable-total {
+    display: block;
+  }
+  .editable-total > dd {
+    margin-top: 10px;
+  }
   .grand-total dd {
     margin: 0;
   }
@@ -2798,20 +2933,28 @@ progress::-webkit-progress-value {
     grid-template-columns: 1fr;
   }
   .shipment-form {
-    grid-template-columns: 23px minmax(90px, 1fr) minmax(70px, 0.7fr) 30px;
+    grid-template-columns: 23px minmax(0, 1fr) 36px;
     gap: 9px;
   }
+  .shipment-form > .field {
+    grid-column: 2 / -1;
+  }
+  .shipment-form > .field:first-of-type {
+    grid-column: 2;
+  }
   .shipment-form > .field:nth-of-type(3) {
-    grid-column: 2/4;
-    grid-row: 2;
+    grid-row: 3;
   }
   .shipment-form > .button {
-    grid-column: 4;
+    grid-column: 3;
     grid-row: 1;
   }
   .shipment-form .input,
   .shipment-form .select-wrap select {
     font-size: var(--text-control);
+  }
+  .waybill-recognition {
+    grid-template-columns: minmax(0, 1fr);
   }
   .materials-layout {
     grid-template-columns: 1fr;

@@ -1,5 +1,6 @@
 param([switch]$Test, [switch]$SkipBuild)
 
+& (Join-Path $PSScriptRoot 'initialize.ps1')
 . (Join-Path $PSScriptRoot 'load-env.ps1')
 $dockerSettingsPath = Join-Path $env:APPDATA 'Docker/settings-store.json'
 if (-not (Test-Path -LiteralPath $dockerSettingsPath)) { throw 'DOCKER_STORAGE_CONFIGURATION_REQUIRED' }
@@ -25,6 +26,7 @@ try {
             throw "PORT_IN_USE: $port"
         }
     }
+    & (Join-Path $PSScriptRoot 'setup-ocr.ps1')
     docker compose --profile test up -d --wait $databaseService
     if ($LASTEXITCODE -ne 0) { throw 'DATABASE_START_FAILED' }
     if (-not $SkipBuild) { & (Join-Path $PSScriptRoot 'pnpm.ps1') build }

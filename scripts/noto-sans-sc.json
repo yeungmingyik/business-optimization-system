@@ -3,7 +3,7 @@
   "version": "2.004",
   "upstreamCommit": "f8d157532fbfaeda587e826d4cd5b21a49186f7c",
   "axes": { "wght": [100, 900] },
-  "chunkSize": 256,
+  "chunkSize": 128,
   "cssMinimumCodepoint": 8192,
   "commonTextDirectories": ["apps/web/src", "apps/api/src", "packages/database/src"],
   "buildDependencies": { "fonttools": "4.60.1", "brotli": "1.2.0", "zopfli": "0.4.3" },

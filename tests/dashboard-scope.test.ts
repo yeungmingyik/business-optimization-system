@@ -83,6 +83,7 @@ async function createPaidOrder(
     await client.request('POST', `/orders/${pending.id}/payment`, {
       version: pending.version,
       paidAt,
+      receivingAccount: '工商银行 622200001234',
       paymentNote: '银行转账',
     }),
   );

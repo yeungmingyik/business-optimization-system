@@ -41,11 +41,19 @@ async function parse(path: string, kind: TransferKind): Promise<SpreadsheetResul
   const columns = importColumns[kind];
   const header = sheet.getRow(1);
   const positions: Record<string, number> = {};
+  const optionalColumns = new Set([
+    'deliveryAddress',
+    'taxRate',
+    'taxFeeMode',
+    'totalInclTaxOverride',
+    'receivingAccount',
+  ]);
   for (const [key, label] of Object.entries(columns)) {
     const matched: number[] = [];
     header.eachCell((cell, index) => {
       if (cellText(cell.value) === label) matched.push(index);
     });
+    if (matched.length === 0 && optionalColumns.has(key)) continue;
     if (matched.length !== 1)
       errors.push({ row: 1, field: label, message: matched.length ? '列名重复' : '缺少字段列' });
     else positions[key] = matched[0];

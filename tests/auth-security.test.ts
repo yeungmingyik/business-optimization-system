@@ -173,6 +173,7 @@ describe('会话与并发保护', () => {
       operator.request('POST', `/orders/${order.id}/payment`, {
         version: order.version,
         paidAt: new Date().toISOString(),
+        receivingAccount: '工商银行 622200001234',
         paymentNote: '银行转账',
       }),
       operator.request('POST', `/orders/${order.id}/cancel`, {

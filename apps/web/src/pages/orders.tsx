@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate } from '@tanstack/react-router';
 import {
@@ -55,9 +55,13 @@ import {
 } from '../components/ui';
 import { ExportButton, ImportDialog } from '../components/transfers';
 import { EntitySelect } from '../components/entity-select';
+import { WaybillAttachments } from '../components/waybill-attachments';
+import { calculateOrderAmounts } from '../lib/order-amounts';
 
 export default function Orders() {
-  const path = useLocation().pathname;
+  const requestedPath = useLocation().pathname;
+  const path = useDeferredValue(requestedPath);
+  if (path !== requestedPath) return <Loading rows={8} />;
   if (path === '/orders/new') return <OrderEditor />;
   const match = path.match(/^\/orders\/([^/]+)(\/edit)?$/);
   if (match)
@@ -296,6 +300,8 @@ function OrderDetail({ id }: { id: string }) {
           paidAt: string;
           amount: string;
           paymentNote?: string;
+          receivingAccount?: string;
+          previousValue?: { receivingAccount?: string };
           previousStatus: Order['status'];
           nextStatus: Order['status'];
           actorName: string;
@@ -391,35 +397,7 @@ function OrderDetail({ id }: { id: string }) {
             />
           </Section>
           <Section title="产品明细">
-            <DataTable
-              data={item.lines}
-              columns={[
-                {
-                  accessorKey: 'name',
-                  header: '产品',
-                  cell: ({ row }) => (
-                    <div>
-                      <strong>{row.original.name}</strong>
-                      <small className="cell-secondary">
-                        {row.original.sku} · {row.original.model || '—'}
-                      </small>
-                    </div>
-                  ),
-                },
-                { accessorKey: 'unit', header: '单位' },
-                { accessorKey: 'quantity', header: '数量' },
-                {
-                  accessorKey: 'unitPriceExTax',
-                  header: '不含税单价（元）',
-                  cell: ({ row }) => money(row.original.unitPriceExTax),
-                },
-                {
-                  accessorKey: 'lineTotal',
-                  header: '金额（元）',
-                  cell: ({ row }) => money(row.original.lineTotal),
-                },
-              ]}
-            />
+            <OrderDetailLines lines={item.lines} />
           </Section>
           <Section title="物流信息" action={<Truck size={17} />}>
             {item.shipments.length ? (
@@ -434,6 +412,13 @@ function OrderDetail({ id }: { id: string }) {
                         ['物流单号', shipment.trackingNo],
                       ]}
                     />
+                    {!!shipment.attachmentIds?.length && (
+                      <WaybillAttachments
+                        value={shipment.attachmentIds}
+                        onChange={() => undefined}
+                        disabled
+                      />
+                    )}
                   </div>
                 ))}
               </div>
@@ -463,6 +448,11 @@ function OrderDetail({ id }: { id: string }) {
                       {payment.paymentNote ? ` · ${payment.paymentNote}` : ''}
                     </small>
                     {payment.paidAt && <small>付款时间 {date(payment.paidAt, true)}</small>}
+                    {payment.receivingAccount && <small>收款账号 {payment.receivingAccount}</small>}
+                    {payment.previousValue?.receivingAccount &&
+                      payment.previousValue.receivingAccount !== payment.receivingAccount && (
+                        <small>原收款账号 {payment.previousValue.receivingAccount}</small>
+                      )}
                     {payment.reason && <small>原因：{payment.reason}</small>}
                   </div>
                   <Badge>{payment.nextStatus}</Badge>
@@ -489,8 +479,11 @@ function OrderDetail({ id }: { id: string }) {
             freight={item.freightFee}
             packaging={item.packagingFee}
             tax={item.taxFee}
+            taxRate={item.taxRate}
             total={item.totalInclTax}
             subtotal={item.totalExTax}
+            calculatedTotal={item.calculatedTotalInclTax}
+            adjusted={item.totalInclTaxOverride != null}
           />
           {item.paidAt && (
             <div className="panel paid-summary">
@@ -500,6 +493,7 @@ function OrderDetail({ id }: { id: string }) {
               </span>
               <strong>¥ {money(item.totalInclTax)}</strong>
               <small>{date(item.paidAt, true)}</small>
+              {item.receivingAccount && <small>收款账号 {item.receivingAccount}</small>}
             </div>
           )}
         </aside>
@@ -508,6 +502,40 @@ function OrderDetail({ id }: { id: string }) {
     </>
   );
 }
+
+const OrderDetailLines = memo(function OrderDetailLines({ lines }: { lines: OrderLine[] }) {
+  return (
+    <DataTable
+      data={lines}
+      columns={[
+        {
+          accessorKey: 'name',
+          header: '产品',
+          cell: ({ row }) => (
+            <div>
+              <strong>{row.original.name}</strong>
+              <small className="cell-secondary">
+                {row.original.sku} · {row.original.model || '—'}
+              </small>
+            </div>
+          ),
+        },
+        { accessorKey: 'unit', header: '单位' },
+        { accessorKey: 'quantity', header: '数量' },
+        {
+          accessorKey: 'unitPriceExTax',
+          header: '不含税单价（元）',
+          cell: ({ row }) => money(row.original.unitPriceExTax),
+        },
+        {
+          accessorKey: 'lineTotal',
+          header: '金额（元）',
+          cell: ({ row }) => money(row.original.lineTotal),
+        },
+      ]}
+    />
+  );
+});
 
 type EditorLine = OrderLine & { rowId: string };
 type EditorShipment = Shipment & { rowId: string };
@@ -521,14 +549,28 @@ function newLine(): EditorLine {
   };
 }
 
-function OrderEditor({ id }: { id?: string }) {
-  const navigate = useNavigate();
-  const query = useQuery({
-    queryKey: ['order', id],
-    queryFn: () => api<Order>(`/orders/${id}`),
-    enabled: !!id,
-  });
-  const [form, setForm] = useState({
+function orderForm(item?: Order) {
+  if (item)
+    return {
+      customerId: item.customerId,
+      orderDate: item.orderDate,
+      recipientName: item.recipientName,
+      recipientPhone: item.recipientPhone,
+      recipientAddress: item.recipientAddress,
+      invoiceRequired: item.invoiceRequired,
+      note: item.note || '',
+      type: item.type,
+      originalOrderId: item.originalOrderId || '',
+      externalSource: item.externalSource || '',
+      externalOrderNo: item.externalOrderNo || '',
+      freightFee: item.freightFee,
+      packagingFee: item.packagingFee,
+      taxFee: item.taxFee,
+      taxRate: item.taxRate || '0',
+      taxFeeMode: item.taxFeeMode || 'manual',
+      totalInclTaxOverride: item.totalInclTaxOverride ?? null,
+    };
+  return {
     customerId: new URLSearchParams(window.location.search).get('customerId') || '',
     orderDate: today(),
     recipientName: '',
@@ -543,16 +585,38 @@ function OrderEditor({ id }: { id?: string }) {
     freightFee: '0.00',
     packagingFee: '0.00',
     taxFee: '0.00',
+    taxRate: '0',
+    taxFeeMode: 'auto' as 'auto' | 'manual',
+    totalInclTaxOverride: null as string | null,
+  };
+}
+
+function OrderEditor({ id }: { id?: string }) {
+  const navigate = useNavigate();
+  const query = useQuery({
+    queryKey: ['order', id],
+    queryFn: () => api<Order>(`/orders/${id}`),
+    enabled: !!id,
   });
+  const initializedOrder = useRef(query.data);
+  const [form, setForm] = useState(() => orderForm(query.data));
   const customer = useQuery({
     queryKey: ['order-customer', form.customerId],
     queryFn: ({ signal }) => api<Customer>(`/customers/${form.customerId}`, { signal }),
     enabled: !!form.customerId && !id,
   });
-  const [lines, setLines] = useState<EditorLine[]>([newLine()]);
+  const [lines, setLines] = useState<EditorLine[]>(() =>
+    query.data
+      ? query.data.lines.map((line) => ({ ...line, rowId: crypto.randomUUID() }))
+      : [newLine()],
+  );
   const lineRef = useRef(lines);
   lineRef.current = lines;
-  const [shipments, setShipments] = useState<EditorShipment[]>([]);
+  const [shipments, setShipments] = useState<EditorShipment[]>(
+    () =>
+      query.data?.shipments.map((shipment) => ({ ...shipment, rowId: crypto.randomUUID() })) || [],
+  );
+  const [busyWaybills, setBusyWaybills] = useState<Set<string>>(new Set());
   const [removed, setRemoved] = useState<{ line: EditorLine; index: number } | null>(null);
   const [dirty, setDirty] = useState(false);
   const updateLine = useCallback((line: EditorLine) => {
@@ -571,24 +635,10 @@ function OrderEditor({ id }: { id?: string }) {
   useDirtyGuard(dirty);
   const locked = query.data?.status === '已付款';
   useEffect(() => {
-    if (query.data) {
+    if (query.data && query.data !== initializedOrder.current) {
       const item = query.data;
-      setForm({
-        customerId: item.customerId,
-        orderDate: item.orderDate,
-        recipientName: item.recipientName,
-        recipientPhone: item.recipientPhone,
-        recipientAddress: item.recipientAddress,
-        invoiceRequired: item.invoiceRequired,
-        note: item.note || '',
-        type: item.type,
-        originalOrderId: item.originalOrderId || '',
-        externalSource: item.externalSource || '',
-        externalOrderNo: item.externalOrderNo || '',
-        freightFee: item.freightFee,
-        packagingFee: item.packagingFee,
-        taxFee: item.taxFee,
-      });
+      initializedOrder.current = item;
+      setForm(orderForm(item));
       setLines(item.lines.map((line) => ({ ...line, rowId: crypto.randomUUID() })));
       setShipments(item.shipments.map((shipment) => ({ ...shipment, rowId: crypto.randomUUID() })));
     }
@@ -600,7 +650,7 @@ function OrderEditor({ id }: { id?: string }) {
         ...current,
         recipientName: selected.contactName,
         recipientPhone: selected.contactPhone || selected.companyPhone || '',
-        recipientAddress: selected.companyAddress || '',
+        recipientAddress: selected.deliveryAddress || selected.companyAddress || '',
       }));
     }
   }, [customer.data, form.recipientName, id]);
@@ -615,24 +665,10 @@ function OrderEditor({ id }: { id?: string }) {
       customerId: selected.id,
       recipientName: selected.contactName,
       recipientPhone: selected.contactPhone || selected.companyPhone || '',
-      recipientAddress: selected.companyAddress || '',
+      recipientAddress: selected.deliveryAddress || selected.companyAddress || '',
     }));
   }
-  const totals = useMemo(() => {
-    const goods = lines.reduce(
-      (sum, line) =>
-        sum +
-        cents(line.unitPriceExTax) *
-          BigInt(Number.isInteger(line.quantity) && line.quantity > 0 ? line.quantity : 0),
-      0n,
-    );
-    const subtotal = goods + cents(form.freightFee) + cents(form.packagingFee);
-    return {
-      goods: decimal(goods),
-      subtotal: decimal(subtotal),
-      total: decimal(subtotal + cents(form.taxFee)),
-    };
-  }, [lines, form.freightFee, form.packagingFee, form.taxFee]);
+  const totals = useMemo(() => calculateOrderAmounts(lines, form), [lines, form]);
   const save = useMutation({
     mutationFn: () => {
       const shipping = shipments.map(({ rowId: _rowId, ...shipment }) => shipment);
@@ -647,6 +683,7 @@ function OrderEditor({ id }: { id?: string }) {
           }
         : {
             ...form,
+            taxFee: form.taxFeeMode === 'auto' ? totals.tax : form.taxFee,
             originalOrderId: form.originalOrderId || null,
             shipments: shipping,
             lines: lines.map((line) => ({
@@ -701,6 +738,7 @@ function OrderEditor({ id }: { id?: string }) {
         id="order-form"
         onSubmit={(event) => {
           event.preventDefault();
+          if (busyWaybills.size || save.isPending) return;
           save.mutate();
         }}
       >
@@ -889,12 +927,11 @@ function OrderEditor({ id }: { id?: string }) {
               {!lines.length && <ErrorMessage error="至少添加一项产品明细" />}
             </Section>
             <Section title="费用明细">
-              <div className="form-grid three-columns">
+              <div className="form-grid">
                 {(
                   [
                     ['freightFee', '运费（元）'],
                     ['packagingFee', '包装费（元）'],
-                    ['taxFee', '税费（元）'],
                   ] as const
                 ).map(([key, label]) => (
                   <Field label={label} required key={key}>
@@ -908,6 +945,50 @@ function OrderEditor({ id }: { id?: string }) {
                     />
                   </Field>
                 ))}
+                <Field label="税率（%）" required>
+                  <Input
+                    inputMode="decimal"
+                    pattern="(100(\.0{1,4})?|[0-9]{1,2}(\.[0-9]{1,4})?)"
+                    maxLength={8}
+                    required
+                    disabled={locked}
+                    value={form.taxRate}
+                    onChange={(event) => update('taxRate', event.target.value)}
+                  />
+                </Field>
+                <div className="amount-field">
+                  <Field label="税费（元）" required>
+                    <Input
+                      inputMode="decimal"
+                      pattern="[0-9]{1,12}(\.[0-9]{1,2})?"
+                      required
+                      disabled={locked}
+                      value={form.taxFeeMode === 'auto' ? totals.tax : form.taxFee}
+                      onChange={(event) => {
+                        setDirty(true);
+                        setForm((current) => ({
+                          ...current,
+                          taxFeeMode: 'manual',
+                          taxFee: event.target.value,
+                        }));
+                      }}
+                    />
+                  </Field>
+                  <div className="amount-field-meta">
+                    <span>{form.taxFeeMode === 'auto' ? '自动计算' : '手动金额'}</span>
+                    {form.taxFeeMode === 'manual' && !locked && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        aria-label="恢复税费自动计算"
+                        onClick={() => update('taxFeeMode', 'auto')}
+                      >
+                        <RotateCcw size={13} />
+                        恢复计算
+                      </Button>
+                    )}
+                  </div>
+                </div>
               </div>
             </Section>
             <Section
@@ -924,6 +1005,7 @@ function OrderEditor({ id }: { id?: string }) {
                         carrier: '',
                         freightPayment: '到付',
                         trackingNo: '',
+                        attachmentIds: [],
                       },
                     ]);
                   }}
@@ -937,9 +1019,10 @@ function OrderEditor({ id }: { id?: string }) {
                 {shipments.map((shipment, index) => (
                   <div className="shipment-form" key={shipment.rowId}>
                     <span className="shipment-number">{index + 1}</span>
-                    <Field label="物流公司" required>
+                    <Field label="物流公司" required={!shipment.attachmentIds?.length}>
                       <Input
-                        required
+                        required={!shipment.attachmentIds?.length}
+                        maxLength={200}
                         value={shipment.carrier}
                         onChange={(event) => {
                           setDirty(true);
@@ -975,9 +1058,10 @@ function OrderEditor({ id }: { id?: string }) {
                         <option>现付</option>
                       </Select>
                     </Field>
-                    <Field label="物流单号" required>
+                    <Field label="物流单号" required={!shipment.attachmentIds?.length}>
                       <Input
-                        required
+                        required={!shipment.attachmentIds?.length}
+                        maxLength={200}
                         value={shipment.trackingNo}
                         onChange={(event) => {
                           setDirty(true);
@@ -995,6 +1079,7 @@ function OrderEditor({ id }: { id?: string }) {
                       size="icon"
                       variant="ghost"
                       aria-label={`移除物流 ${index + 1}`}
+                      disabled={busyWaybills.has(shipment.rowId) || save.isPending}
                       onClick={() => {
                         setDirty(true);
                         setShipments((current) =>
@@ -1004,6 +1089,42 @@ function OrderEditor({ id }: { id?: string }) {
                     >
                       <X size={16} />
                     </Button>
+                    <div className="shipment-attachments">
+                      <WaybillAttachments
+                        value={shipment.attachmentIds || []}
+                        disabled={save.isPending}
+                        onBusyChange={(busy) => {
+                          setBusyWaybills((current) => {
+                            const next = new Set(current);
+                            if (busy) next.add(shipment.rowId);
+                            else next.delete(shipment.rowId);
+                            return next;
+                          });
+                        }}
+                        onChange={(attachmentIds) => {
+                          setDirty(true);
+                          setShipments((current) =>
+                            current.map((item) =>
+                              item.rowId === shipment.rowId ? { ...item, attachmentIds } : item,
+                            ),
+                          );
+                        }}
+                        onRecognized={(result) => {
+                          setDirty(true);
+                          setShipments((current) =>
+                            current.map((item) =>
+                              item.rowId === shipment.rowId
+                                ? {
+                                    ...item,
+                                    carrier: result.carrier || item.carrier,
+                                    trackingNo: result.trackingNo || item.trackingNo,
+                                  }
+                                : item,
+                            ),
+                          );
+                        }}
+                      />
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1024,9 +1145,15 @@ function OrderEditor({ id }: { id?: string }) {
               goods={totals.goods}
               freight={form.freightFee}
               packaging={form.packagingFee}
-              tax={form.taxFee}
+              tax={totals.tax}
+              taxRate={form.taxRate}
               subtotal={totals.subtotal}
               total={totals.total}
+              calculatedTotal={totals.calculatedTotal}
+              adjusted={form.totalInclTaxOverride !== null}
+              editable={!locked}
+              onTotalChange={(value) => update('totalInclTaxOverride', value)}
+              totalInput={form.totalInclTaxOverride ?? totals.total}
             />
           </aside>
         </div>
@@ -1036,7 +1163,12 @@ function OrderEditor({ id }: { id?: string }) {
             含税总计 <strong>¥ {money(totals.total)}</strong>
           </span>
           <Button onClick={cancel}>取消</Button>
-          <Button variant="primary" type="submit" pending={save.isPending} disabled={!lines.length}>
+          <Button
+            variant="primary"
+            type="submit"
+            pending={save.isPending}
+            disabled={!lines.length || busyWaybills.size > 0}
+          >
             保存订单
           </Button>
         </div>
@@ -1146,6 +1278,12 @@ function AmountSummary({
   tax,
   subtotal,
   total,
+  taxRate,
+  calculatedTotal,
+  adjusted = false,
+  editable = false,
+  onTotalChange,
+  totalInput,
 }: {
   goods: string;
   freight: string;
@@ -1153,6 +1291,12 @@ function AmountSummary({
   tax: string;
   subtotal: string;
   total: string;
+  taxRate?: string;
+  calculatedTotal?: string;
+  adjusted?: boolean;
+  editable?: boolean;
+  onTotalChange?: (value: string | null) => void;
+  totalInput?: string;
 }) {
   return (
     <Section title="金额汇总">
@@ -1174,16 +1318,51 @@ function AmountSummary({
           <dd>¥ {money(subtotal)}</dd>
         </div>
         <div>
-          <dt>税费</dt>
+          <dt>税费{taxRate ? `（${taxRate}%）` : ''}</dt>
           <dd>¥ {money(tax)}</dd>
         </div>
-        <div className="grand-total">
+        {adjusted && calculatedTotal && (
+          <div>
+            <dt>计算金额</dt>
+            <dd>¥ {money(calculatedTotal)}</dd>
+          </div>
+        )}
+        <div className={`grand-total ${editable ? 'editable-total' : ''}`}>
           <dt>含税总计</dt>
           <dd>
-            <small>¥</small> {money(total)}
+            {editable ? (
+              <Input
+                aria-label="含税总计（元）"
+                inputMode="decimal"
+                pattern="[0-9]{1,12}(\.[0-9]{1,2})?"
+                required
+                value={totalInput ?? total}
+                onChange={(event) => onTotalChange?.(event.target.value)}
+              />
+            ) : (
+              <>
+                <small>¥</small> {money(total)}
+              </>
+            )}
           </dd>
         </div>
       </dl>
+      {editable && (
+        <div className="amount-field-meta">
+          <span>{adjusted ? '手动金额' : '自动计算'}</span>
+          {adjusted && (
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-label="恢复含税总计自动计算"
+              onClick={() => onTotalChange?.(null)}
+            >
+              <RotateCcw size={13} />
+              恢复计算
+            </Button>
+          )}
+        </div>
+      )}
     </Section>
   );
 }
@@ -1199,6 +1378,7 @@ function PaymentDialog({
 }) {
   const [paidAt, setPaidAt] = useState(localDateTime(order.paidAt));
   const [paymentNote, setPaymentNote] = useState(order.paymentNote || '');
+  const [receivingAccount, setReceivingAccount] = useState(order.receivingAccount || '');
   const [reason, setReason] = useState('');
   const [status, setStatus] = useState('已付款');
   const mutation = useMutation({
@@ -1208,8 +1388,14 @@ function PaymentDialog({
         ...(action === 'cancel'
           ? { reason }
           : action === 'payment-correction'
-            ? { status, paidAt: status === '已付款' ? iso(paidAt) : null, paymentNote, reason }
-            : { paidAt: iso(paidAt), paymentNote }),
+            ? {
+                status,
+                paidAt: status === '已付款' ? iso(paidAt) : null,
+                paymentNote,
+                receivingAccount,
+                reason,
+              }
+            : { paidAt: iso(paidAt), paymentNote, receivingAccount }),
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['order', order.id] });
@@ -1270,6 +1456,14 @@ function PaymentDialog({
                 max={localDateTime()}
                 required
                 onChange={(event) => setPaidAt(event.target.value)}
+              />
+            </Field>
+            <Field label="收款账号" required>
+              <Input
+                value={receivingAccount}
+                maxLength={200}
+                required
+                onChange={(event) => setReceivingAccount(event.target.value)}
               />
             </Field>
             <Field label="付款备注">

@@ -386,6 +386,8 @@ const operationLabels: Record<string, string> = {
   replace: '替换文件',
 };
 function businessValue(value: unknown): string {
+  if (value === 'auto') return '自动计算';
+  if (value === 'manual') return '手动金额';
   if (value === null || value === undefined) return '—';
   if (value === true) return '是';
   if (value === false) return '否';

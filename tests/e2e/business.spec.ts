@@ -68,6 +68,7 @@ test('客户、跟进、订单和付款形成完整操作链', async ({ page }) 
   await expect(page.getByText('2,561.00', { exact: false }).first()).toBeVisible();
   await page.getByRole('button', { name: '登记付款', exact: true }).click();
   const payment = page.getByRole('dialog');
+  await payment.getByLabel('收款账号', { exact: false }).fill('工商银行 622200001234');
   await payment.getByLabel('付款备注', { exact: true }).fill('银行转账');
   await payment.getByRole('button', { name: '确认', exact: true }).click();
   await expect(payment).not.toBeVisible();

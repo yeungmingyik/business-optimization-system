@@ -32,6 +32,7 @@ export const customerSchema = z.object({
   bankAccount: text,
   contactName: required,
   contactPhone: text,
+  deliveryAddress: text,
   taobaoId: text,
   wechatId: text,
   wechatName: text,
@@ -45,6 +46,40 @@ export const customerSchema = z.object({
   lastDealAt: timestamp,
   nextFollowupAt: timestamp,
 });
+const draftText = z.string().max(2000);
+const draftId = z.union([uuid, z.literal('')]);
+export const customerDraftDocumentSchema = z
+  .object({
+    companyName: draftText,
+    taxId: draftText,
+    companyPhone: draftText,
+    companyAddress: draftText,
+    bankName: draftText,
+    bankAccount: draftText,
+    contactName: z.string().max(200),
+    contactPhone: draftText,
+    deliveryAddress: draftText,
+    taobaoId: draftText,
+    wechatId: draftText,
+    wechatName: draftText,
+    douyinId: draftText,
+    merchantAccountId: draftId,
+    sourceChannel: z.union([z.enum(channels), z.literal('')]),
+    status: z.union([z.enum(['待跟进', '已报价', '待付款', '已付款']), z.literal('')]),
+    ownerId: draftId,
+    productIds: z.array(uuid).max(100),
+    tagIds: z.array(uuid).max(100),
+    lastDealAt: z.string().max(40),
+    nextFollowupAt: z.string().max(40),
+  })
+  .partial()
+  .strict();
+export const draftVersion = z.number().int().min(0).max(2147483646);
+export const taxRate = z
+  .string()
+  .regex(/^(0|[1-9]\d{0,2})(\.\d{1,4})?$/, '税率格式错误')
+  .refine((value) => Number(value) <= 100, '税率应为 0 至 100')
+  .default('0');
 export const productSchema = z.object({
   sku: required,
   name: required,
@@ -55,12 +90,21 @@ export const productSchema = z.object({
   tagIds: z.array(uuid).max(100).default([]),
   assetIds: z.array(uuid).max(100).default([]),
 });
-export const shipmentSchema = z.object({
-  id: uuid.optional(),
-  carrier: required,
-  freightPayment: z.enum(['到付', '现付']),
-  trackingNo: required,
-});
+export const shipmentSchema = z
+  .object({
+    id: uuid.optional(),
+    carrier: z.string().trim().max(200).default(''),
+    freightPayment: z.enum(['到付', '现付']),
+    trackingNo: z.string().trim().max(200).default(''),
+    attachmentIds: z.array(uuid).max(5).default([]),
+  })
+  .superRefine((value, ctx) => {
+    if (value.attachmentIds.length) return;
+    if (!value.carrier)
+      ctx.addIssue({ code: 'custom', path: ['carrier'], message: '请填写承运商或上传运单图' });
+    if (!value.trackingNo)
+      ctx.addIssue({ code: 'custom', path: ['trackingNo'], message: '请填写运单号或上传运单图' });
+  });
 export const orderSchema = z.object({
   customerId: uuid,
   orderDate: z
@@ -82,6 +126,9 @@ export const orderSchema = z.object({
   freightFee: money,
   packagingFee: money,
   taxFee: money,
+  taxRate,
+  taxFeeMode: z.enum(['auto', 'manual']).default('manual'),
+  totalInclTaxOverride: money.nullable().default(null),
   lines: z
     .array(
       z.object({
@@ -131,6 +178,11 @@ export function formatAmount(value: bigint) {
 export function amount(value: bigint) {
   if (value < 0n || value > 99999999999999n) fail('金额超出范围');
   return formatAmount(value);
+}
+export function taxCents(goods: bigint, rate: string) {
+  const [whole, fractional = ''] = rate.split('.');
+  const units = BigInt(whole) * 10000n + BigInt(fractional.padEnd(4, '0'));
+  return (goods * units + 500000n) / 1000000n;
 }
 export function notFuture(value: string | null) {
   if (value && new Date(value).getTime() > Date.now()) fail('时间不能晚于当前时间');

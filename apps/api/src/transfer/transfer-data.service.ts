@@ -181,6 +181,7 @@ export class TransferDataService {
             companyName: value.companyName,
             contactName: value.contactName,
             contactPhone: value.contactPhone,
+            deliveryAddress: value.deliveryAddress || '',
             taxId: value.companyTaxId,
             companyPhone: value.companyPhone,
             companyAddress: value.companyAddress,
@@ -302,6 +303,9 @@ export class TransferDataService {
             freightFee: value.freight || '0',
             packagingFee: value.packaging || '0',
             taxFee: value.tax || '0',
+            taxRate: value.taxRate || '0',
+            taxFeeMode: value.taxFeeMode === '自动计算' ? 'auto' : 'manual',
+            totalInclTaxOverride: value.totalInclTaxOverride || null,
             note: value.note,
             lines,
             shipments:
@@ -317,6 +321,7 @@ export class TransferDataService {
             status: value.status || '待付款',
             paidAt: value.paidAt || null,
             paymentNote: value.paymentNote,
+            receivingAccount: value.receivingAccount,
           };
         }
         prepared.push({ row, input });
@@ -506,13 +511,13 @@ export class TransferDataService {
   ): Promise<any> {
     if (kind === 'customers') return this.core.createCustomer(user, input, tx);
     if (kind === 'products') return this.core.createProduct(user, input, tx);
-    const { status, paidAt, paymentNote, ...orderInput } = input;
+    const { status, paidAt, paymentNote, receivingAccount, ...orderInput } = input;
     const order = await this.core.createOrder(user, orderInput, tx);
     if (status === '已付款')
       return this.core.payOrder(
         user,
         order.id,
-        { version: order.version, paidAt, paymentNote: paymentNote || '' },
+        { version: order.version, paidAt, paymentNote: paymentNote || '', receivingAccount },
         tx,
       );
     return order;
@@ -604,6 +609,7 @@ export class TransferDataService {
               freight: resource.freightFee,
               packaging: resource.packagingFee,
               tax: resource.taxFee,
+              taxFeeMode: resource.taxFeeMode === 'auto' ? '自动计算' : '手动金额',
               carrier: (resource.shipments || []).map((item: any) => item.carrier).join(';'),
               freightPayment: (resource.shipments || [])
                 .map((item: any) => item.freightPayment)

@@ -4,6 +4,7 @@ import { PoolClient } from 'pg';
 import { z } from 'zod';
 import { AuthService, AuthUser, boss, userRow } from './auth.service';
 import { DatabaseService } from './database.service';
+import { syncOrderWaybills } from './waybills/waybill-access';
 import {
   amount,
   formatAmount,
@@ -11,7 +12,9 @@ import {
   channels,
   checkVersion,
   customerSchema,
+  customerDraftDocumentSchema,
   dayRange,
+  draftVersion,
   fail,
   followupSchema,
   notFuture,
@@ -22,6 +25,7 @@ import {
   required,
   shipmentSchema,
   timestamp,
+  taxCents,
   uuid,
   versioned,
 } from './validation';
@@ -604,7 +608,11 @@ export class CoreService {
   }
   async createCustomer(user: AuthUser, input: any, tx?: PoolClient) {
     const data = parse(customerSchema, input);
+    const consumedVersion =
+      input.draftVersion === undefined ? undefined : parse(draftVersion, input.draftVersion);
     return this.write(user, tx, async (client) => {
+      if (consumedVersion !== undefined)
+        await this.lockCustomerDraft(user, consumedVersion, client);
       const ownerId = user.role === 'BOSS' ? (data.ownerId ?? user.id) : user.id;
       await this.enabledOwner(ownerId, client);
       await this.validateCustomer(user, data, null, client);
@@ -615,7 +623,58 @@ export class CoreService {
         [id, ownerId, data.merchantAccountId, JSON.stringify(document)],
       );
       await this.audit(user, 'customer', id, '创建客户', { ownerId, status: data.status }, client);
+      if (consumedVersion !== undefined)
+        await client.query(
+          'UPDATE customer_drafts SET document=NULL,version=version+1,updated_at=now() WHERE user_id=$1',
+          [user.id],
+        );
       return this.getCustomer(user, id, client);
+    });
+  }
+  customerDraftShape(row: any) {
+    return {
+      document: row?.document ?? null,
+      version: row?.version ?? 0,
+      updatedAt: row?.updated_at ?? null,
+    };
+  }
+  async getCustomerDraft(user: AuthUser) {
+    const result = await this.db.query('SELECT * FROM customer_drafts WHERE user_id=$1', [user.id]);
+    return this.customerDraftShape(result.rows[0]);
+  }
+  async lockCustomerDraft(user: AuthUser, version: number, tx: PoolClient) {
+    await tx.query('INSERT INTO customer_drafts(user_id) VALUES($1) ON CONFLICT DO NOTHING', [
+      user.id,
+    ]);
+    const row = (
+      await tx.query('SELECT * FROM customer_drafts WHERE user_id=$1 FOR UPDATE', [user.id])
+    ).rows[0];
+    if (row.version !== version) fail('草稿已更新，请重新载入', 409, 'VERSION_CONFLICT');
+    return row;
+  }
+  async saveCustomerDraft(user: AuthUser, input: any) {
+    const data = parse(
+      z.object({ version: draftVersion, document: customerDraftDocumentSchema }).strict(),
+      input,
+    );
+    return this.write(user, undefined, async (tx) => {
+      await this.lockCustomerDraft(user, data.version, tx);
+      const result = await tx.query(
+        'UPDATE customer_drafts SET document=$2,version=version+1,updated_at=now() WHERE user_id=$1 RETURNING *',
+        [user.id, JSON.stringify(data.document)],
+      );
+      return this.customerDraftShape(result.rows[0]);
+    });
+  }
+  async clearCustomerDraft(user: AuthUser, input: any) {
+    const data = parse(z.object({ version: draftVersion }).strict(), input);
+    return this.write(user, undefined, async (tx) => {
+      await this.lockCustomerDraft(user, data.version, tx);
+      const result = await tx.query(
+        'UPDATE customer_drafts SET document=NULL,version=version+1,updated_at=now() WHERE user_id=$1 RETURNING *',
+        [user.id],
+      );
+      return this.customerDraftShape(result.rows[0]);
     });
   }
   async updateCustomer(user: AuthUser, id: string, input: any) {
@@ -1059,7 +1118,13 @@ export class CoreService {
       };
     });
     const exTax = goods + cents(data.freightFee) + cents(data.packagingFee);
-    const inclTax = exTax + cents(data.taxFee);
+    const calculatedTaxFee = taxCents(goods, data.taxRate);
+    const resolvedTaxFee = data.taxFeeMode === 'auto' ? calculatedTaxFee : cents(data.taxFee);
+    const calculatedTotalInclTax = exTax + resolvedTaxFee;
+    const inclTax =
+      data.totalInclTaxOverride === null
+        ? calculatedTotalInclTax
+        : cents(data.totalInclTaxOverride);
     const shipments = data.shipments.map((s: any) => ({ ...s, id: s.id ?? randomUUID() }));
     if (new Set(shipments.map((s: any) => s.id)).size !== shipments.length)
       fail('物流记录不能重复');
@@ -1067,13 +1132,18 @@ export class CoreService {
       ...data,
       freightFee: amount(cents(data.freightFee)),
       packagingFee: amount(cents(data.packagingFee)),
-      taxFee: amount(cents(data.taxFee)),
+      taxFee: amount(resolvedTaxFee),
+      calculatedTaxFee: amount(calculatedTaxFee),
+      calculatedTotalInclTax: amount(calculatedTotalInclTax),
+      totalInclTaxOverride:
+        data.totalInclTaxOverride === null ? null : amount(cents(data.totalInclTaxOverride)),
       lines,
       shipments,
       goodsTotal: amount(goods),
       totalExTax: amount(exTax),
       totalInclTax: amount(inclTax),
       paymentNote: previous?.paymentNote ?? '',
+      receivingAccount: previous?.receivingAccount ?? '',
     };
   }
   async createOrder(user: AuthUser, input: any, tx?: PoolClient) {
@@ -1095,19 +1165,34 @@ export class CoreService {
           JSON.stringify(document),
         ],
       );
+      await syncOrderWaybills(client, user, id, document.shipments);
       await this.audit(
         user,
         'order',
         id,
         '创建订单',
-        { totalInclTax: document.totalInclTax, type: data.type },
+        {
+          totalInclTax: document.totalInclTax,
+          calculatedTotalInclTax: document.calculatedTotalInclTax,
+          totalInclTaxOverride: document.totalInclTaxOverride,
+          taxRate: document.taxRate,
+          taxFeeMode: document.taxFeeMode,
+          taxFee: document.taxFee,
+          calculatedTaxFee: document.calculatedTaxFee,
+          type: data.type,
+        },
         client,
       );
       return this.getOrder(user, id, client);
     });
   }
   async updateOrder(user: AuthUser, id: string, input: any) {
-    if ('status' in input || 'paidAt' in input || 'paymentNote' in input)
+    if (
+      'status' in input ||
+      'paidAt' in input ||
+      'paymentNote' in input ||
+      'receivingAccount' in input
+    )
       fail('请通过付款操作登记状态');
     return this.write(user, undefined, async (tx) => {
       const row = await this.orderRow(user, id, tx, true);
@@ -1143,11 +1228,14 @@ export class CoreService {
           ...data,
           shipments: data.shipments.map((s) => ({ ...s, id: s.id ?? randomUUID() })),
         };
+        if (new Set(document.shipments.map((s: any) => s.id)).size !== document.shipments.length)
+          fail('物流记录不能重复');
       } else {
         const data = parse(orderSchema, { ...row.document, ...input });
         if (data.originalOrderId === id) fail('原订单不能为当前订单');
         document = await this.orderDocument(user, data, row.document, tx);
       }
+      await syncOrderWaybills(tx, user, id, document.shipments);
       await tx.query(
         'UPDATE orders SET customer_id=$2,type=$3,order_date=$4,total_incl_tax=$5,external_source=$6,external_order_no=$7,document=$8,version=version+1,updated_at=now() WHERE id=$1',
         [
@@ -1167,8 +1255,26 @@ export class CoreService {
         id,
         '修改订单',
         {
-          before: { totalInclTax: row.total_incl_tax, shipments: row.document.shipments },
-          after: { totalInclTax: document.totalInclTax, shipments: document.shipments },
+          before: {
+            totalInclTax: row.total_incl_tax,
+            calculatedTotalInclTax: row.document.calculatedTotalInclTax,
+            totalInclTaxOverride: row.document.totalInclTaxOverride,
+            taxRate: row.document.taxRate,
+            taxFeeMode: row.document.taxFeeMode,
+            taxFee: row.document.taxFee,
+            calculatedTaxFee: row.document.calculatedTaxFee,
+            shipments: row.document.shipments,
+          },
+          after: {
+            totalInclTax: document.totalInclTax,
+            calculatedTotalInclTax: document.calculatedTotalInclTax,
+            totalInclTaxOverride: document.totalInclTaxOverride,
+            taxRate: document.taxRate,
+            taxFeeMode: document.taxFeeMode,
+            taxFee: document.taxFee,
+            calculatedTaxFee: document.calculatedTaxFee,
+            shipments: document.shipments,
+          },
           fields: Object.keys(input).filter((k) => k !== 'version'),
         },
         tx,
@@ -1183,6 +1289,7 @@ export class CoreService {
           version: z.number().int().positive(),
           paidAt: z.string().datetime({ offset: true }),
           paymentNote: z.string().max(2000).default(''),
+          receivingAccount: required,
         })
         .strict(),
       input,
@@ -1195,10 +1302,17 @@ export class CoreService {
         fail('该订单不能登记付款', row.status === '取消付款' ? 422 : 409, 'STATE_CONFLICT');
       await client.query(
         "UPDATE orders SET status='已付款',paid_at=$2,document=document||$3::jsonb,version=version+1,updated_at=now() WHERE id=$1",
-        [id, data.paidAt, JSON.stringify({ paymentNote: data.paymentNote })],
+        [
+          id,
+          data.paidAt,
+          JSON.stringify({
+            paymentNote: data.paymentNote,
+            receivingAccount: data.receivingAccount,
+          }),
+        ],
       );
       await client.query(
-        'INSERT INTO payment_changes(id,order_id,actor_id,previous_status,next_status,amount,paid_at,payment_note) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
+        'INSERT INTO payment_changes(id,order_id,actor_id,previous_status,next_status,amount,paid_at,payment_note,receiving_account,previous_value) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
         [
           randomUUID(),
           id,
@@ -1208,6 +1322,12 @@ export class CoreService {
           row.total_incl_tax,
           data.paidAt,
           data.paymentNote,
+          data.receivingAccount,
+          JSON.stringify({
+            paidAt: row.paid_at,
+            paymentNote: row.document.paymentNote ?? '',
+            receivingAccount: row.document.receivingAccount ?? '',
+          }),
         ],
       );
       if (row.type === '正常') {
@@ -1221,7 +1341,11 @@ export class CoreService {
         'order',
         id,
         '登记付款',
-        { paidAt: data.paidAt, amount: row.total_incl_tax },
+        {
+          paidAt: data.paidAt,
+          amount: row.total_incl_tax,
+          receivingAccount: data.receivingAccount,
+        },
         client,
       );
       return this.getOrder(user, id, client);
@@ -1235,7 +1359,7 @@ export class CoreService {
       if (row.status !== '待付款') fail('该订单不能取消', 409, 'STATE_CONFLICT');
       await tx.query(
         "UPDATE orders SET status='取消付款',document=document||$2::jsonb,version=version+1,updated_at=now() WHERE id=$1",
-        [id, JSON.stringify({ cancelReason: reason })],
+        [id, JSON.stringify({ cancelReason: reason, receivingAccount: '' })],
       );
       await tx.query(
         'INSERT INTO payment_changes(id,order_id,actor_id,previous_status,next_status,amount,reason) VALUES($1,$2,$3,$4,$5,$6,$7)',
@@ -1248,12 +1372,18 @@ export class CoreService {
   async correctPayment(user: AuthUser, id: string, input: any) {
     boss(user);
     const data = parse(
-      z.object({
-        status: z.enum(['待付款', '已付款']),
-        paidAt: timestamp,
-        paymentNote: z.string().max(2000).default(''),
-        reason: required,
-      }),
+      z
+        .object({
+          status: z.enum(['待付款', '已付款']),
+          paidAt: timestamp,
+          paymentNote: z.string().max(2000).default(''),
+          receivingAccount: z.string().trim().max(200).default(''),
+          reason: required,
+        })
+        .superRefine((value, ctx) => {
+          if (value.status === '已付款' && !value.receivingAccount)
+            ctx.addIssue({ code: 'custom', path: ['receivingAccount'], message: '请填写收款账号' });
+        }),
       input,
     );
     notFuture(data.paidAt);
@@ -1264,12 +1394,18 @@ export class CoreService {
       if (row.status !== '已付款') fail('该订单没有可更正的付款', 409, 'STATE_CONFLICT');
       if (row.customer_archived_at && data.status === '待付款') fail('请先恢复客户');
       const paidAt = data.status === '已付款' ? data.paidAt : null;
+      const receivingAccount = data.status === '已付款' ? data.receivingAccount : '';
       await tx.query(
         'UPDATE orders SET status=$2,paid_at=$3,document=document||$4::jsonb,version=version+1,updated_at=now() WHERE id=$1',
-        [id, data.status, paidAt, JSON.stringify({ paymentNote: data.paymentNote })],
+        [
+          id,
+          data.status,
+          paidAt,
+          JSON.stringify({ paymentNote: data.paymentNote, receivingAccount }),
+        ],
       );
       await tx.query(
-        'INSERT INTO payment_changes(id,order_id,actor_id,previous_status,next_status,amount,paid_at,payment_note,reason,previous_value) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
+        'INSERT INTO payment_changes(id,order_id,actor_id,previous_status,next_status,amount,paid_at,payment_note,reason,previous_value,receiving_account) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',
         [
           randomUUID(),
           id,
@@ -1280,7 +1416,12 @@ export class CoreService {
           paidAt,
           data.paymentNote,
           data.reason,
-          JSON.stringify({ paidAt: row.paid_at, paymentNote: row.document.paymentNote }),
+          JSON.stringify({
+            paidAt: row.paid_at,
+            paymentNote: row.document.paymentNote,
+            receivingAccount: row.document.receivingAccount ?? '',
+          }),
+          receivingAccount,
         ],
       );
       await this.audit(
@@ -1293,8 +1434,9 @@ export class CoreService {
             status: row.status,
             paidAt: row.paid_at,
             paymentNote: row.document.paymentNote,
+            receivingAccount: row.document.receivingAccount ?? '',
           },
-          after: data,
+          after: { ...data, paidAt, receivingAccount },
         },
         tx,
       );
@@ -1315,6 +1457,7 @@ export class CoreService {
       amount: r.amount,
       paidAt: r.paid_at,
       paymentNote: r.payment_note,
+      receivingAccount: r.receiving_account,
       reason: r.reason,
       previousValue: r.previous_value,
       createdAt: r.created_at,
@@ -1323,11 +1466,14 @@ export class CoreService {
   async saveShipment(user: AuthUser, id: string, input: any, shipmentId?: string) {
     const order = await this.getOrder(user, id);
     checkVersion(order.version, input);
-    const data = parse(shipmentSchema, input);
     const shipments = [...order.shipments];
+    const index = shipmentId ? shipments.findIndex((s: any) => s.id === shipmentId) : -1;
+    if (shipmentId && index === -1) fail('物流记录不存在', 404);
+    const data = parse(shipmentSchema, {
+      ...(shipmentId ? shipments[index] : {}),
+      ...input,
+    });
     if (shipmentId) {
-      const index = shipments.findIndex((s: any) => s.id === shipmentId);
-      if (index === -1) fail('物流记录不存在', 404);
       shipments[index] = { ...data, id: shipmentId };
     } else shipments.push({ ...data, id: randomUUID() });
     return this.updateOrder(user, id, { version: order.version, shipments });

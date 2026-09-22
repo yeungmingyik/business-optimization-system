@@ -77,6 +77,9 @@ def generate_subset(task):
     processor = subset.Subsetter(options=options)
     processor.populate(unicodes=set(codepoints) | variation_selectors)
     processor.subset(font)
+    for table in font['cmap'].tables:
+        if table.isUnicode() and table.format != 14:
+            table.cmap = {codepoint: glyph for codepoint, glyph in table.cmap.items() if codepoint in codepoints}
     output = BytesIO()
     font.flavor = 'woff2'
     font.save(output)

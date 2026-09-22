@@ -1,4 +1,17 @@
-import { Body, Controller, Get, Inject, Param, Patch, Post, Query, Req, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Inject,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Query,
+  Req,
+  Res,
+} from '@nestjs/common';
 import type { Response } from 'express';
 import { AuthService, AuthRequest } from './auth.service';
 import { CoreService } from './core.service';
@@ -102,6 +115,18 @@ export class CoreController {
   }
   @Get('customers') customers(@Req() req: AuthRequest, @Query() query: any) {
     return this.core.listCustomers(req.user, query);
+  }
+  @Get('customer-drafts/current') customerDraft(@Req() req: AuthRequest) {
+    return this.core.getCustomerDraft(req.user);
+  }
+  @Put('customer-drafts/current') saveCustomerDraft(@Req() req: AuthRequest, @Body() data: any) {
+    return this.core.saveCustomerDraft(req.user, data);
+  }
+  @Delete('customer-drafts/current') clearCustomerDraft(
+    @Req() req: AuthRequest,
+    @Body() data: any,
+  ) {
+    return this.core.clearCustomerDraft(req.user, data);
   }
   @Post('customers') createCustomer(@Req() req: AuthRequest, @Body() data: any) {
     return this.core.createCustomer(req.user, data);

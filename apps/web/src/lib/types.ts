@@ -40,6 +40,7 @@ export interface Customer extends Entity {
   bankAccount: string;
   contactName: string;
   contactPhone: string;
+  deliveryAddress?: string;
   taobaoId: string;
   wechatId: string;
   wechatName: string;
@@ -92,6 +93,7 @@ export interface Shipment {
   carrier: string;
   freightPayment: '到付' | '现付';
   trackingNo: string;
+  attachmentIds?: string[];
 }
 export interface Order extends Entity {
   orderNo: string;
@@ -114,11 +116,17 @@ export interface Order extends Entity {
   freightFee: string;
   packagingFee: string;
   taxFee: string;
+  taxRate?: string;
+  taxFeeMode?: 'auto' | 'manual';
+  calculatedTaxFee?: string;
+  calculatedTotalInclTax?: string;
+  totalInclTaxOverride?: string | null;
   goodsTotal: string;
   totalExTax: string;
   totalInclTax: string;
   paidAt: string | null;
   paymentNote: string;
+  receivingAccount?: string;
   cancelReason?: string;
   lines: OrderLine[];
   shipments: Shipment[];

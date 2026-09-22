@@ -5,7 +5,7 @@ import { ApiClient } from '../tests/api-client';
 
 async function main() {
   const baseUrl = 'http://127.0.0.1:5175';
-  const directory = resolve('.artifacts/performance');
+  const directory = resolve(process.env.BOS_PERFORMANCE_OUTPUT ?? '.artifacts/performance');
   const owner = new ApiClient();
   await owner.login('test-owner', 'TestOwner2026!Local');
   await mkdir(directory, { recursive: true });
@@ -67,6 +67,9 @@ async function main() {
             .filter((item) => /\.woff2$/.test(new URL(item.name).pathname))
             .reduce((total, item) => total + item.encodedBodySize, 0),
           fontFiles: resources.filter((item) => /\.woff2$/.test(item.name)).length,
+          fontResources: resources
+            .filter((item) => /\.woff2$/.test(new URL(item.name).pathname))
+            .map((item) => ({ path: new URL(item.name).pathname, bytes: item.encodedBodySize })),
           fontFamily: getComputedStyle(document.body).fontFamily,
         };
       });
